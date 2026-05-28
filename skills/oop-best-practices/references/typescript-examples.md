@@ -520,6 +520,318 @@ class RegistrationService {
 }
 ```
 
+## SOLID — Open/Closed Principle
+
+### Before
+
+```typescript
+class ShippingCalculator {
+  cost(order: Order): number {
+    if (order.type() === 'standard') return 5
+    if (order.type() === 'express') return 15
+    if (order.type() === 'overnight') return 25
+    throw new Error('Unknown shipping type')
+  }
+}
+```
+
+### After
+
+```typescript
+interface ShippingPolicy {
+  cost(): number
+}
+
+class StandardShipping implements ShippingPolicy {
+  cost(): number { return 5 }
+}
+
+class ExpressShipping implements ShippingPolicy {
+  cost(): number { return 15 }
+}
+
+class OvernightShipping implements ShippingPolicy {
+  cost(): number { return 25 }
+}
+
+class ShippingCalculator {
+  cost(policy: ShippingPolicy): number {
+    return policy.cost()
+  }
+}
+```
+
+## SOLID — Liskov Substitution Principle
+
+### Before
+
+```typescript
+class Collection {
+  protected readonly items: string[] = []
+
+  add(item: string): void {
+    this.items.push(item)
+  }
+
+  all(): string[] {
+    return this.items
+  }
+}
+
+class ReadOnlyCollection extends Collection {
+  add(_item: string): void {
+    throw new Error('Collection is read only') // violates LSP
+  }
+}
+```
+
+### After
+
+```typescript
+class MutableCollection {
+  private readonly items: string[] = []
+
+  add(item: string): void {
+    this.items.push(item)
+  }
+
+  all(): readonly string[] {
+    return this.items
+  }
+}
+
+class ReadOnlyCollection {
+  constructor(private readonly items: readonly string[]) {}
+
+  all(): readonly string[] {
+    return this.items
+  }
+}
+```
+
+## SOLID — Interface Segregation Principle
+
+### Before
+
+```typescript
+interface Worker {
+  work(): void
+  eat(): void
+  sleep(): void
+}
+
+class RobotWorker implements Worker {
+  work(): void { /* ... */ }
+  eat(): void { throw new Error('Robots do not eat') }
+  sleep(): void { throw new Error('Robots do not sleep') }
+}
+```
+
+### After
+
+```typescript
+interface Workable {
+  work(): void
+}
+
+interface Eatable {
+  eat(): void
+}
+
+interface Sleepable {
+  sleep(): void
+}
+
+class HumanWorker implements Workable, Eatable, Sleepable {
+  work(): void { /* ... */ }
+  eat(): void { /* ... */ }
+  sleep(): void { /* ... */ }
+}
+
+class RobotWorker implements Workable {
+  work(): void { /* ... */ }
+}
+```
+
+## SOLID — Dependency Inversion Principle
+
+### Before
+
+```typescript
+class PostgresDatabase {
+  persist(data: object): void { /* ... */ }
+}
+
+class OrderProcessor {
+  private readonly db = new PostgresDatabase()
+
+  process(order: Order): void {
+    this.db.persist(order)
+  }
+}
+```
+
+### After
+
+```typescript
+// Interface owned by the high-level module, not the low-level one
+interface OrderStore {
+  save(order: Order): void
+}
+
+class OrderProcessor {
+  constructor(private readonly store: OrderStore) {}
+
+  process(order: Order): void {
+    this.store.save(order)
+  }
+}
+
+class PostgresOrderStore implements OrderStore {
+  save(order: Order): void { /* ... */ }
+}
+```
+
+## Object Calisthenics — One Level of Indentation
+
+### Before
+
+```typescript
+function generateReport(orders: Order[]): string {
+  let result = ''
+  for (const order of orders) {
+    if (order.isComplete()) {
+      for (const item of order.items()) {
+        if (item.price().value() > 100) {
+          result += `${item.name()}: ${item.price().value()}\n`
+        }
+      }
+    }
+  }
+  return result
+}
+```
+
+### After
+
+```typescript
+function generateReport(orders: Order[]): string {
+  return completeOrders(orders)
+    .flatMap(expensiveItems)
+    .map(formatItem)
+    .join('\n')
+}
+
+function completeOrders(orders: Order[]): Order[] {
+  return orders.filter(o => o.isComplete())
+}
+
+function expensiveItems(order: Order): OrderItem[] {
+  return order.items().filter(i => i.price().value() > 100)
+}
+
+function formatItem(item: OrderItem): string {
+  return `${item.name()}: ${item.price().value()}`
+}
+```
+
+## Object Calisthenics — No Getters/Setters
+
+### Before
+
+```typescript
+class Rectangle {
+  constructor(private width: number, private height: number) {}
+
+  getWidth(): number { return this.width }
+  getHeight(): number { return this.height }
+}
+
+const area = rect.getWidth() * rect.getHeight()
+const perimeter = 2 * (rect.getWidth() + rect.getHeight())
+```
+
+### After
+
+```typescript
+class Rectangle {
+  constructor(
+    private readonly width: number,
+    private readonly height: number,
+  ) {}
+
+  area(): number {
+    return this.width * this.height
+  }
+
+  perimeter(): number {
+    return 2 * (this.width + this.height)
+  }
+
+  isSquare(): boolean {
+    return this.width === this.height
+  }
+}
+```
+
+## Object Calisthenics — Don't Abbreviate
+
+### Before
+
+```typescript
+class OrdMgr {
+  calc(o: Order): number {
+    return o.itms().reduce((s, i) => s + i.prc(), 0)
+  }
+
+  proc(o: Order): void {
+    const amt = this.calc(o)
+    this.pymt.chg(o.cstmrId(), amt)
+  }
+}
+```
+
+### After
+
+```typescript
+class OrderManager {
+  calculateTotal(order: Order): number {
+    return order.items().reduce((sum, item) => sum + item.price(), 0)
+  }
+
+  processOrder(order: Order): void {
+    const amount = this.calculateTotal(order)
+    this.paymentService.charge(order.customerId(), amount)
+  }
+}
+```
+
+## Explaining Message
+
+### Before
+
+```typescript
+class Subscription {
+  isExpired(): boolean {
+    return new Date() > new Date(this.startDate.getTime() + this.durationDays * 86400000)
+  }
+}
+```
+
+### After
+
+```typescript
+class Subscription {
+  isExpired(): boolean {
+    return new Date() > this.expirationDate()
+  }
+
+  private expirationDate(): Date {
+    return new Date(this.startDate.getTime() + this.durationDays * 86400000)
+  }
+}
+```
+
 ## What to Notice
 
 - Rich models and clear object responsibilities help keep knowledge close to the concept.
@@ -528,3 +840,4 @@ class RegistrationService {
 - Structural typing lets TypeScript model protocol-style roles without forcing inheritance.
 - Composition and message passing keep change local.
 - Wrapping primitives and splitting responsibilities keep each class focused on one reason to change.
+- SOLID principles, Object Calisthenics rules, and extracted explaining messages each reduce a different kind of coupling or noise.

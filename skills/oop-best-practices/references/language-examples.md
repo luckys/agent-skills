@@ -33,6 +33,14 @@ Each language file contains examples for the same concepts:
 - Object Calisthenics — No Else Rule
 - Dependency Direction
 - Composed Method
+- SOLID — Open/Closed Principle
+- SOLID — Liskov Substitution Principle
+- SOLID — Interface Segregation Principle
+- SOLID — Dependency Inversion Principle
+- Object Calisthenics — One Level of Indentation
+- Object Calisthenics — No Getters/Setters
+- Object Calisthenics — Don't Abbreviate
+- Explaining Message
 
 ## How to Use This Reference
 

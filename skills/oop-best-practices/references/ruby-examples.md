@@ -531,6 +531,367 @@ class RegistrationService
 end
 ```
 
+## SOLID — Open/Closed Principle
+
+### Before (case on type string)
+
+```ruby
+class ShippingCalculator
+  def cost(order)
+    case order.type
+    when 'standard' then 500
+    when 'express'  then 1200
+    when 'overnight' then 2500
+    else raise ArgumentError, "Unknown order type: #{order.type}"
+    end
+  end
+end
+```
+
+### After (open to new policies, closed to modification)
+
+```ruby
+class StandardShipping
+  def cost(_order)
+    500
+  end
+end
+
+class ExpressShipping
+  def cost(_order)
+    1200
+  end
+end
+
+class OvernightShipping
+  def cost(_order)
+    2500
+  end
+end
+
+class ShippingCalculator
+  def initialize(policy)
+    @policy = policy
+  end
+
+  def cost(order)
+    @policy.cost(order)
+  end
+end
+```
+
+## SOLID — Liskov Substitution Principle
+
+### Before (LSP violation — subclass breaks the contract)
+
+```ruby
+class Collection
+  def initialize
+    @items = []
+  end
+
+  def add(item)
+    @items << item
+  end
+
+  def all
+    @items
+  end
+end
+
+class ReadOnlyCollection < Collection
+  def add(_item)
+    raise 'Cannot modify a read-only collection'
+  end
+end
+```
+
+### After (independent classes, no broken inheritance)
+
+```ruby
+class MutableCollection
+  def initialize
+    @items = []
+  end
+
+  def add(item)
+    @items << item
+  end
+
+  def all
+    @items
+  end
+end
+
+class ReadOnlyCollection
+  def initialize(items)
+    @items = items.freeze
+  end
+
+  def all
+    @items
+  end
+end
+```
+
+## SOLID — Interface Segregation Principle
+
+### Before (fat module forces unrelated implementations)
+
+```ruby
+module Worker
+  def work
+    raise NotImplementedError
+  end
+
+  def eat
+    raise NotImplementedError
+  end
+
+  def sleep
+    raise NotImplementedError
+  end
+end
+
+class RobotWorker
+  include Worker
+
+  def work
+    'working'
+  end
+
+  def eat
+    raise 'Robots do not eat'
+  end
+
+  def sleep
+    raise 'Robots do not sleep'
+  end
+end
+```
+
+### After (narrow modules included only where needed)
+
+```ruby
+module Workable
+  def work
+    raise NotImplementedError
+  end
+end
+
+module Eatable
+  def eat
+    raise NotImplementedError
+  end
+end
+
+module Sleepable
+  def sleep
+    raise NotImplementedError
+  end
+end
+
+class HumanWorker
+  include Workable
+  include Eatable
+  include Sleepable
+
+  def work  = 'working'
+  def eat   = 'eating'
+  def sleep = 'sleeping'
+end
+
+class RobotWorker
+  include Workable
+
+  def work = 'working'
+end
+```
+
+## SOLID — Dependency Inversion Principle
+
+### Before (depends on a concrete class)
+
+```ruby
+class OrderProcessor
+  def process(order)
+    db = PostgresDatabase.new
+    db.save(order)
+  end
+end
+```
+
+### After (depends on any object that responds to `save`)
+
+```ruby
+class OrderProcessor
+  def initialize(storage)
+    @storage = storage   # duck-typed: any object responding to #save(order)
+  end
+
+  def process(order)
+    @storage.save(order)
+  end
+end
+```
+
+## Object Calisthenics — One Level of Indentation
+
+### Before (nested loops and conditionals)
+
+```ruby
+def generate_report(orders)
+  result = []
+  orders.each do |order|
+    if order.complete?
+      order.items.each do |item|
+        if item.price > 100
+          result << "#{item.name}: #{item.price}"
+        end
+      end
+    end
+  end
+  result
+end
+```
+
+### After (extracted private methods, functional style)
+
+```ruby
+def generate_report(orders)
+  complete_orders(orders)
+    .flat_map { |order| expensive_items(order.items) }
+    .map { |item| format_item(item) }
+end
+
+private
+
+def complete_orders(orders)
+  orders.select(&:complete?)
+end
+
+def expensive_items(items)
+  items.select { |item| item.price > 100 }
+end
+
+def format_item(item)
+  "#{item.name}: #{item.price}"
+end
+```
+
+## Object Calisthenics — No Getters/Setters
+
+### Before (callers compute behaviour from exposed data)
+
+```ruby
+class Rectangle
+  attr_reader :width, :height
+
+  def initialize(width, height)
+    @width  = width
+    @height = height
+  end
+end
+
+# Caller computes what the object should know:
+area      = rect.width * rect.height
+perimeter = 2 * (rect.width + rect.height)
+square    = rect.width == rect.height
+```
+
+### After (behaviour lives on the object)
+
+```ruby
+class Rectangle
+  def initialize(width, height)
+    @width  = width
+    @height = height
+  end
+
+  def area
+    @width * @height
+  end
+
+  def perimeter
+    2 * (@width + @height)
+  end
+
+  def square?
+    @width == @height
+  end
+end
+```
+
+## Object Calisthenics — Don't Abbreviate
+
+### Before (cryptic class and method names)
+
+```ruby
+class OrdMgr
+  def calc(o)
+    o.items.sum(&:price)
+  end
+
+  def proc(o)
+    calc(o)
+    o.mark_processed
+  end
+end
+```
+
+### After (names reveal intent)
+
+```ruby
+class OrderManager
+  def calculate_total(order)
+    order.items.sum(&:price)
+  end
+
+  def process_order(order)
+    calculate_total(order)
+    order.mark_processed
+  end
+end
+```
+
+## Explaining Message
+
+### Before (inline computation obscures intent)
+
+```ruby
+class Subscription
+  def initialize(started_at, duration_days)
+    @started_at    = started_at
+    @duration_days = duration_days
+  end
+
+  def expired?
+    Time.now > @started_at + (@duration_days * 24 * 60 * 60)
+  end
+end
+```
+
+### After (private method names the concept)
+
+```ruby
+class Subscription
+  def initialize(started_at, duration_days)
+    @started_at    = started_at
+    @duration_days = duration_days
+  end
+
+  def expired?
+    Time.now > expiration_date
+  end
+
+  private
+
+  def expiration_date
+    @started_at + (@duration_days * 24 * 60 * 60)
+  end
+end
+```
+
 ## What to Notice
 
 - Rich models and clear object responsibilities help keep knowledge close to the concept.
@@ -538,3 +899,4 @@ end
 - Explicit interfaces can still be made visible through narrow modules and roles.
 - Composition and delegation stay easier to evolve than large inheritance hierarchies.
 - Wrapping primitives and splitting responsibilities keep each class focused on one reason to change.
+- SOLID principles, Object Calisthenics rules, and extracted explaining messages each reduce a different kind of coupling or noise.

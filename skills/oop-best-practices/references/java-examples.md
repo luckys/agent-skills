@@ -626,6 +626,363 @@ public final class RegistrationService {
 }
 ```
 
+## SOLID — Open/Closed Principle
+
+### Before
+
+```java
+public final class ShippingCalculator {
+    public int calculate(Order order) {
+        if (order.type().equals("standard")) {
+            return 5;
+        } else if (order.type().equals("express")) {
+            return 15;
+        } else if (order.type().equals("overnight")) {
+            return 25;
+        }
+        throw new IllegalArgumentException("Unknown order type");
+    }
+}
+```
+
+### After
+
+```java
+public interface ShippingPolicy {
+    int shippingCost(Order order);
+}
+
+public final class StandardShipping implements ShippingPolicy {
+    public int shippingCost(Order order) { return 5; }
+}
+
+public final class ExpressShipping implements ShippingPolicy {
+    public int shippingCost(Order order) { return 15; }
+}
+
+public final class OvernightShipping implements ShippingPolicy {
+    public int shippingCost(Order order) { return 25; }
+}
+
+public final class ShippingCalculator {
+    private final ShippingPolicy policy;
+
+    public ShippingCalculator(ShippingPolicy policy) {
+        this.policy = policy;
+    }
+
+    public int calculate(Order order) {
+        return policy.shippingCost(order);
+    }
+}
+// New shipping types are added by implementing ShippingPolicy — the calculator is never modified.
+```
+
+## SOLID — Liskov Substitution Principle
+
+### Before
+
+```java
+// LSP violation: subtype throws where the parent promises it won't.
+public class ReadOnlyCollection extends java.util.ArrayList<String> {
+    @Override
+    public boolean add(String element) {
+        throw new UnsupportedOperationException("Collection is read-only");
+    }
+}
+```
+
+### After
+
+```java
+// Independent classes — no inheritance contract is broken.
+public final class MutableCollection {
+    private final java.util.List<String> items = new java.util.ArrayList<>();
+
+    public void add(String item) {
+        items.add(item);
+    }
+
+    public java.util.List<String> all() {
+        return java.util.Collections.unmodifiableList(items);
+    }
+}
+
+public final class ReadOnlyCollection {
+    private final java.util.List<String> items;
+
+    public ReadOnlyCollection(java.util.List<String> items) {
+        this.items = java.util.List.copyOf(items);
+    }
+
+    public java.util.List<String> all() {
+        return items;
+    }
+}
+```
+
+## SOLID — Interface Segregation Principle
+
+### Before
+
+```java
+// Fat interface forces RobotWorker to throw on methods it cannot support.
+public interface Worker {
+    void work();
+    void eat();
+    void sleep();
+}
+
+public final class RobotWorker implements Worker {
+    public void work() { /* performs task */ }
+    public void eat() { throw new UnsupportedOperationException("Robots don't eat"); }
+    public void sleep() { throw new UnsupportedOperationException("Robots don't sleep"); }
+}
+```
+
+### After
+
+```java
+public interface Workable {
+    void work();
+}
+
+public interface Eatable {
+    void eat();
+}
+
+public interface Sleepable {
+    void sleep();
+}
+
+public final class HumanWorker implements Workable, Eatable, Sleepable {
+    public void work() { /* performs task */ }
+    public void eat() { /* has lunch */ }
+    public void sleep() { /* rests */ }
+}
+
+public final class RobotWorker implements Workable {
+    public void work() { /* performs task */ }
+}
+```
+
+## SOLID — Dependency Inversion Principle
+
+### Before
+
+```java
+public final class OrderProcessor {
+    private final PostgresDatabase database = new PostgresDatabase(); // hardcoded low-level detail
+
+    public void process(Order order) {
+        database.insert("orders", order);
+    }
+}
+```
+
+### After
+
+```java
+// Interface owned by the high-level module, not the low-level one.
+public interface OrderStore {
+    void save(Order order);
+}
+
+public final class PostgresOrderStore implements OrderStore {
+    public void save(Order order) {
+        // writes to Postgres
+    }
+}
+
+public final class OrderProcessor {
+    private final OrderStore store;
+
+    public OrderProcessor(OrderStore store) {
+        this.store = store;
+    }
+
+    public void process(Order order) {
+        store.save(order);
+    }
+}
+```
+
+## Object Calisthenics — One Level of Indentation
+
+### Before
+
+```java
+public String generateReport(java.util.List<Order> orders) {
+    StringBuilder report = new StringBuilder();
+    for (Order order : orders) {
+        if (order.isComplete()) {
+            for (OrderLine line : order.lines()) {
+                if (line.subtotal().value() > 10000) {
+                    report.append(line.name()).append(": ").append(line.subtotal().value()).append("\n");
+                }
+            }
+        }
+    }
+    return report.toString();
+}
+```
+
+### After
+
+```java
+public String generateReport(java.util.List<Order> orders) {
+    return orders.stream()
+        .filter(this::isComplete)
+        .flatMap(order -> expensiveItems(order).stream())
+        .map(this::formatItem)
+        .collect(java.util.stream.Collectors.joining("\n"));
+}
+
+private boolean isComplete(Order order) {
+    return order.isComplete();
+}
+
+private java.util.List<OrderLine> expensiveItems(Order order) {
+    return order.lines().stream()
+        .filter(line -> line.subtotal().value() > 10000)
+        .collect(java.util.stream.Collectors.toList());
+}
+
+private String formatItem(OrderLine line) {
+    return line.name() + ": " + line.subtotal().value();
+}
+```
+
+## Object Calisthenics — No Getters/Setters
+
+### Before
+
+```java
+public final class Rectangle {
+    private final int width;
+    private final int height;
+
+    public Rectangle(int width, int height) {
+        this.width = width;
+        this.height = height;
+    }
+
+    public int getWidth() { return width; }
+    public int getHeight() { return height; }
+}
+
+// Callers compute behaviour externally — knowledge leaks out of the object.
+int area = rect.getWidth() * rect.getHeight();
+int perimeter = 2 * (rect.getWidth() + rect.getHeight());
+boolean square = rect.getWidth() == rect.getHeight();
+```
+
+### After
+
+```java
+public final class Rectangle {
+    private final int width;
+    private final int height;
+
+    public Rectangle(int width, int height) {
+        this.width = width;
+        this.height = height;
+    }
+
+    public int area() {
+        return width * height;
+    }
+
+    public int perimeter() {
+        return 2 * (width + height);
+    }
+
+    public boolean isSquare() {
+        return width == height;
+    }
+}
+```
+
+## Object Calisthenics — Don't Abbreviate
+
+### Before
+
+```java
+public final class OrdMgr {
+    public int calc(Order o) {
+        int t = 0;
+        for (OrderLine l : o.lines()) {
+            t += l.subtotal().value();
+        }
+        return t;
+    }
+
+    public void proc(Order o) {
+        int t = calc(o);
+        // process with total t
+    }
+}
+```
+
+### After
+
+```java
+public final class OrderManager {
+    public int calculateTotal(Order order) {
+        return order.lines().stream()
+            .mapToInt(line -> line.subtotal().value())
+            .sum();
+    }
+
+    public void processOrder(Order order) {
+        int total = calculateTotal(order);
+        // process with total
+    }
+}
+```
+
+## Explaining Message
+
+### Before
+
+```java
+public final class Subscription {
+    private final long startedAtMillis;
+    private final int durationDays;
+
+    public Subscription(long startedAtMillis, int durationDays) {
+        this.startedAtMillis = startedAtMillis;
+        this.durationDays = durationDays;
+    }
+
+    public boolean isExpired() {
+        return System.currentTimeMillis() > startedAtMillis + (long) durationDays * 24 * 60 * 60 * 1000;
+    }
+}
+```
+
+### After
+
+```java
+public final class Subscription {
+    private final long startedAtMillis;
+    private final int durationDays;
+
+    public Subscription(long startedAtMillis, int durationDays) {
+        this.startedAtMillis = startedAtMillis;
+        this.durationDays = durationDays;
+    }
+
+    public boolean isExpired() {
+        return System.currentTimeMillis() > expirationDate();
+    }
+
+    private long expirationDate() {
+        return startedAtMillis + (long) durationDays * 24 * 60 * 60 * 1000;
+    }
+}
+```
+
 ## What to Notice
 
 - Rich models and clear object responsibilities help keep knowledge close to the concept.
@@ -633,3 +990,4 @@ public final class RegistrationService {
 - Value objects, collection objects, and narrow collaborators keep responsibilities focused.
 - Composition and message passing reduce the need for brittle inheritance trees.
 - Wrapping primitives and splitting responsibilities keep each class focused on one reason to change.
+- SOLID principles, Object Calisthenics rules, and extracted explaining messages each reduce a different kind of coupling or noise.

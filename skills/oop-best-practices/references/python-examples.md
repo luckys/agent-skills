@@ -497,6 +497,331 @@ class RegistrationService:
         self._mailer.send(user.email, "Welcome!", "Your account is ready.")
 ```
 
+## SOLID — Open/Closed Principle
+
+### Before — switch on type string
+
+```python
+class ShippingCalculator:
+    def cost(self, order) -> int:
+        if order.type == "standard":
+            return 5
+        elif order.type == "express":
+            return 15
+        elif order.type == "overnight":
+            return 25
+        return 0
+```
+
+### After — open for extension, closed for modification
+
+```python
+from abc import ABC, abstractmethod
+
+class ShippingPolicy(ABC):
+    @abstractmethod
+    def cost(self, order) -> int:
+        ...
+
+class StandardShipping(ShippingPolicy):
+    def cost(self, order) -> int:
+        return 5
+
+class ExpressShipping(ShippingPolicy):
+    def cost(self, order) -> int:
+        return 15
+
+class OvernightShipping(ShippingPolicy):
+    def cost(self, order) -> int:
+        return 25
+
+class ShippingCalculator:
+    def __init__(self, policy: ShippingPolicy) -> None:
+        self._policy = policy
+
+    def cost(self, order) -> int:
+        return self._policy.cost(order)
+```
+
+## SOLID — Liskov Substitution Principle
+
+### Before — subclass breaks the contract
+
+```python
+class Collection:
+    def __init__(self) -> None:
+        self._items: list = []
+
+    def add(self, item) -> None:
+        self._items.append(item)
+
+    def all(self) -> list:
+        return list(self._items)
+
+class ReadOnlyCollection(Collection):
+    def add(self, item) -> None:
+        raise NotImplementedError("This collection is read-only")  # LSP violation
+```
+
+### After — two independent classes with composition
+
+```python
+class MutableCollection:
+    def __init__(self, items: list | None = None) -> None:
+        self._items: list = list(items) if items else []
+
+    def add(self, item) -> None:
+        self._items.append(item)
+
+    def all(self) -> list:
+        return list(self._items)
+
+class ReadOnlyCollection:
+    def __init__(self, items: list) -> None:
+        self._items = list(items)
+
+    def all(self) -> list:
+        return list(self._items)
+```
+
+## SOLID — Interface Segregation Principle
+
+### Before — fat ABC forces irrelevant methods
+
+```python
+from abc import ABC, abstractmethod
+
+class Worker(ABC):
+    @abstractmethod
+    def work(self) -> None:
+        ...
+
+    @abstractmethod
+    def eat(self) -> None:
+        ...
+
+    @abstractmethod
+    def sleep(self) -> None:
+        ...
+
+class RobotWorker(Worker):
+    def work(self) -> None:
+        print("Robot working")
+
+    def eat(self) -> None:
+        raise NotImplementedError("Robots do not eat")
+
+    def sleep(self) -> None:
+        raise NotImplementedError("Robots do not sleep")
+```
+
+### After — focused Protocol types per capability
+
+```python
+from typing import Protocol
+
+class Workable(Protocol):
+    def work(self) -> None:
+        ...
+
+class Eatable(Protocol):
+    def eat(self) -> None:
+        ...
+
+class Sleepable(Protocol):
+    def sleep(self) -> None:
+        ...
+
+class HumanWorker:
+    def work(self) -> None:
+        print("Human working")
+
+    def eat(self) -> None:
+        print("Human eating")
+
+    def sleep(self) -> None:
+        print("Human sleeping")
+
+class RobotWorker:
+    def work(self) -> None:
+        print("Robot working")
+```
+
+## SOLID — Dependency Inversion Principle
+
+### Before — high-level module depends on a concrete detail
+
+```python
+class PostgresDatabase:
+    def save_order(self, order) -> None:
+        ...  # writes directly to Postgres
+
+class OrderProcessor:
+    def __init__(self) -> None:
+        self._db = PostgresDatabase()  # hardcoded volatile dependency
+
+    def process(self, order) -> None:
+        self._db.save_order(order)
+```
+
+### After — high-level module owns the abstraction
+
+```python
+from typing import Protocol
+
+# Protocol owned by the high-level module.
+class OrderStore(Protocol):
+    def save_order(self, order) -> None:
+        ...
+
+class OrderProcessor:
+    def __init__(self, store: OrderStore) -> None:
+        self._store = store
+
+    def process(self, order) -> None:
+        self._store.save_order(order)
+```
+
+## Object Calisthenics — One Level of Indentation
+
+### Before — nested loops and conditions in one function
+
+```python
+def generate_report(orders: list) -> list[str]:
+    lines = []
+    for order in orders:
+        if order.is_complete():
+            for item in order.items:
+                if item.price > 100:
+                    lines.append(f"{item.name}: {item.price}")
+    return lines
+```
+
+### After — three extracted helpers, each with one level
+
+```python
+def complete_orders(orders: list) -> list:
+    return [order for order in orders if order.is_complete()]
+
+def expensive_items(order) -> list:
+    return [item for item in order.items if item.price > 100]
+
+def format_item(item) -> str:
+    return f"{item.name}: {item.price}"
+
+def generate_report(orders: list) -> list[str]:
+    return [
+        format_item(item)
+        for order in complete_orders(orders)
+        for item in expensive_items(order)
+    ]
+```
+
+## Object Calisthenics — No Getters/Setters
+
+### Before — callers extract data and compute behavior externally
+
+```python
+class Rectangle:
+    def __init__(self, width: int, height: int) -> None:
+        self._width = width
+        self._height = height
+
+    def get_width(self) -> int:
+        return self._width
+
+    def get_height(self) -> int:
+        return self._height
+
+rect = Rectangle(4, 6)
+area = rect.get_width() * rect.get_height()
+perimeter = 2 * (rect.get_width() + rect.get_height())
+```
+
+### After — behavior lives inside the object
+
+```python
+class Rectangle:
+    def __init__(self, width: int, height: int) -> None:
+        self._width = width
+        self._height = height
+
+    def area(self) -> int:
+        return self._width * self._height
+
+    def perimeter(self) -> int:
+        return 2 * (self._width + self._height)
+
+    def is_square(self) -> bool:
+        return self._width == self._height
+
+rect = Rectangle(4, 6)
+area = rect.area()
+perimeter = rect.perimeter()
+```
+
+## Object Calisthenics — Don't Abbreviate
+
+### Before — cryptic names obscure intent
+
+```python
+class OrdMgr:
+    def calc(self, o) -> int:
+        t = 0
+        for i in o.itms:
+            t += i.p * i.q
+        return t
+
+    def proc(self, o) -> None:
+        if self.calc(o) > 0:
+            o.confirm()
+```
+
+### After — names reveal meaning at a glance
+
+```python
+class OrderManager:
+    def calculate_total(self, order) -> int:
+        return sum(item.price * item.quantity for item in order.items)
+
+    def process_order(self, order) -> None:
+        if self.calculate_total(order) > 0:
+            order.confirm()
+```
+
+## Explaining Message
+
+### Before — inline expression hides intent
+
+```python
+from datetime import datetime, timedelta
+
+class Subscription:
+    def __init__(self, start_date: datetime, duration_days: int) -> None:
+        self._start_date = start_date
+        self._duration_days = duration_days
+
+    def is_expired(self) -> bool:
+        return datetime.now() > self._start_date + timedelta(days=self._duration_days)
+```
+
+### After — delegate to a named private method
+
+```python
+from datetime import datetime, timedelta
+
+class Subscription:
+    def __init__(self, start_date: datetime, duration_days: int) -> None:
+        self._start_date = start_date
+        self._duration_days = duration_days
+
+    def is_expired(self) -> bool:
+        return datetime.now() > self._expiration_date()
+
+    def _expiration_date(self) -> datetime:
+        return self._start_date + timedelta(days=self._duration_days)
+```
+
 ## What to Notice
 
 - Rich models and clear object responsibilities help keep knowledge close to the concept.
@@ -504,3 +829,4 @@ class RegistrationService:
 - Protocols and duck typing both support role-based collaboration.
 - Composition and message passing stay readable without large frameworks.
 - Wrapping primitives and splitting responsibilities keep each class focused on one reason to change.
+- SOLID principles, Object Calisthenics rules, and extracted explaining messages each reduce a different kind of coupling or noise.

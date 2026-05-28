@@ -718,6 +718,462 @@ final class RegistrationService
 }
 ```
 
+## SOLID — Open/Closed Principle
+
+### Before
+
+```php
+final class ShippingCalculator
+{
+    public function cost(string $orderType, int $weightGrams): int
+    {
+        if ($orderType === 'standard') {
+            return 500 + (int) round($weightGrams * 0.1);
+        } elseif ($orderType === 'express') {
+            return 1500 + (int) round($weightGrams * 0.3);
+        } elseif ($orderType === 'overnight') {
+            return 3000 + (int) round($weightGrams * 0.5);
+        }
+
+        return 500;
+    }
+}
+```
+
+### After
+
+```php
+interface ShippingPolicy
+{
+    public function cost(int $weightGrams): int;
+}
+
+final class StandardShipping implements ShippingPolicy
+{
+    public function cost(int $weightGrams): int
+    {
+        return 500 + (int) round($weightGrams * 0.1);
+    }
+}
+
+final class ExpressShipping implements ShippingPolicy
+{
+    public function cost(int $weightGrams): int
+    {
+        return 1500 + (int) round($weightGrams * 0.3);
+    }
+}
+
+final class OvernightShipping implements ShippingPolicy
+{
+    public function cost(int $weightGrams): int
+    {
+        return 3000 + (int) round($weightGrams * 0.5);
+    }
+}
+
+final class ShippingCalculator
+{
+    public function __construct(private readonly ShippingPolicy $policy)
+    {
+    }
+
+    public function cost(int $weightGrams): int
+    {
+        return $this->policy->cost($weightGrams);
+    }
+}
+```
+
+## SOLID — Liskov Substitution Principle
+
+### Before
+
+```php
+class Collection
+{
+    private array $items = [];
+
+    public function add(mixed $item): void
+    {
+        $this->items[] = $item;
+    }
+
+    public function all(): array
+    {
+        return $this->items;
+    }
+}
+
+class ReadOnlyCollection extends Collection
+{
+    public function add(mixed $item): void
+    {
+        throw new \BadMethodCallException('This collection is read-only.');
+    }
+}
+```
+
+### After
+
+```php
+final class MutableCollection
+{
+    private array $items = [];
+
+    public function add(mixed $item): void
+    {
+        $this->items[] = $item;
+    }
+
+    public function all(): array
+    {
+        return $this->items;
+    }
+}
+
+final class ReadOnlyCollection
+{
+    public function __construct(private readonly array $items)
+    {
+    }
+
+    public function all(): array
+    {
+        return $this->items;
+    }
+}
+```
+
+## SOLID — Interface Segregation Principle
+
+### Before
+
+```php
+interface Worker
+{
+    public function work(): void;
+    public function eat(): void;
+    public function sleep(): void;
+}
+
+final class RobotWorker implements Worker
+{
+    public function work(): void
+    {
+        // performs task
+    }
+
+    public function eat(): void
+    {
+        throw new \BadMethodCallException('Robots do not eat.');
+    }
+
+    public function sleep(): void
+    {
+        throw new \BadMethodCallException('Robots do not sleep.');
+    }
+}
+```
+
+### After
+
+```php
+interface Workable
+{
+    public function work(): void;
+}
+
+interface Eatable
+{
+    public function eat(): void;
+}
+
+interface Sleepable
+{
+    public function sleep(): void;
+}
+
+final class HumanWorker implements Workable, Eatable, Sleepable
+{
+    public function work(): void
+    {
+        // performs task
+    }
+
+    public function eat(): void
+    {
+        // has lunch
+    }
+
+    public function sleep(): void
+    {
+        // rests
+    }
+}
+
+final class RobotWorker implements Workable
+{
+    public function work(): void
+    {
+        // performs task
+    }
+}
+```
+
+## SOLID — Dependency Inversion Principle
+
+### Before
+
+```php
+final class OrderProcessor
+{
+    public function process(array $order): void
+    {
+        $db = new PostgresDatabase();
+        $db->insert('orders', $order);
+    }
+}
+
+final class PostgresDatabase
+{
+    public function insert(string $table, array $data): void
+    {
+        // writes to PostgreSQL
+    }
+}
+```
+
+### After
+
+```php
+interface OrderStore
+{
+    public function save(array $order): void;
+}
+
+final class PostgresOrderStore implements OrderStore
+{
+    public function save(array $order): void
+    {
+        // writes to PostgreSQL
+    }
+}
+
+final class OrderProcessor
+{
+    public function __construct(private readonly OrderStore $store)
+    {
+    }
+
+    public function process(array $order): void
+    {
+        $this->store->save($order);
+    }
+}
+```
+
+## Object Calisthenics — One Level of Indentation
+
+### Before
+
+```php
+final class ReportGenerator
+{
+    public function generateReport(array $orders): string
+    {
+        $lines = [];
+        foreach ($orders as $order) {
+            if ($order['status'] === 'complete') {
+                foreach ($order['items'] as $item) {
+                    if ($item['price'] > 1000) {
+                        $lines[] = $item['name'] . ': $' . number_format($item['price'] / 100, 2);
+                    }
+                }
+            }
+        }
+        return implode("\n", $lines);
+    }
+}
+```
+
+### After
+
+```php
+final class ReportGenerator
+{
+    public function generateReport(array $orders): string
+    {
+        $items = array_merge(...array_map(
+            fn(array $order): array => $this->expensiveItems($order),
+            $this->completeOrders($orders),
+        ));
+
+        return implode("\n", array_map($this->formatItem(...), $items));
+    }
+
+    private function completeOrders(array $orders): array
+    {
+        return array_values(array_filter(
+            $orders,
+            fn(array $order): bool => $order['status'] === 'complete',
+        ));
+    }
+
+    private function expensiveItems(array $order): array
+    {
+        return array_values(array_filter(
+            $order['items'],
+            fn(array $item): bool => $item['price'] > 1000,
+        ));
+    }
+
+    private function formatItem(array $item): string
+    {
+        return $item['name'] . ': $' . number_format($item['price'] / 100, 2);
+    }
+}
+```
+
+## Object Calisthenics — No Getters/Setters
+
+### Before
+
+```php
+final class Rectangle
+{
+    public function __construct(
+        private readonly int $width,
+        private readonly int $height,
+    ) {
+    }
+
+    public function getWidth(): int
+    {
+        return $this->width;
+    }
+
+    public function getHeight(): int
+    {
+        return $this->height;
+    }
+}
+
+// Caller computes behaviour outside the object
+$area      = $rect->getWidth() * $rect->getHeight();
+$perimeter = 2 * ($rect->getWidth() + $rect->getHeight());
+$isSquare  = $rect->getWidth() === $rect->getHeight();
+```
+
+### After
+
+```php
+final class Rectangle
+{
+    public function __construct(
+        private readonly int $width,
+        private readonly int $height,
+    ) {
+    }
+
+    public function area(): int
+    {
+        return $this->width * $this->height;
+    }
+
+    public function perimeter(): int
+    {
+        return 2 * ($this->width + $this->height);
+    }
+
+    public function isSquare(): bool
+    {
+        return $this->width === $this->height;
+    }
+}
+```
+
+## Object Calisthenics — Don't Abbreviate
+
+### Before
+
+```php
+final class OrdMgr
+{
+    public function calc(Order $o): int
+    {
+        return $o->totalCents();
+    }
+
+    public function proc(Order $o): void
+    {
+        // process order
+    }
+}
+```
+
+### After
+
+```php
+final class OrderManager
+{
+    public function calculateTotal(Order $order): int
+    {
+        return $order->totalCents();
+    }
+
+    public function processOrder(Order $order): void
+    {
+        // process order
+    }
+}
+```
+
+## Explaining Message
+
+### Before
+
+```php
+final class Subscription
+{
+    public function __construct(
+        private readonly \DateTimeImmutable $startDate,
+        private readonly int $durationDays,
+    ) {
+    }
+
+    public function isExpired(): bool
+    {
+        return new \DateTimeImmutable() > (new \DateTimeImmutable())->setTimestamp(
+            $this->startDate->getTimestamp() + ($this->durationDays * 86400),
+        );
+    }
+}
+```
+
+### After
+
+```php
+final class Subscription
+{
+    public function __construct(
+        private readonly \DateTimeImmutable $startDate,
+        private readonly int $durationDays,
+    ) {
+    }
+
+    public function isExpired(): bool
+    {
+        return new \DateTimeImmutable() > $this->expirationDate();
+    }
+
+    private function expirationDate(): \DateTimeInterface
+    {
+        return $this->startDate->modify("+{$this->durationDays} days");
+    }
+}
+```
+
 ## What to Notice
 
 - Rich models and clear object responsibilities help keep knowledge close to the concept.
@@ -725,3 +1181,4 @@ final class RegistrationService
 - Explicit contracts, injected collaborators, and composition help PHP stay object-oriented instead of procedural.
 - Delegating through meaningful messages reduces train-wreck navigation.
 - Wrapping primitives and splitting responsibilities keep each class focused on one reason to change.
+- SOLID principles, Object Calisthenics rules, and extracted explaining messages each reduce a different kind of coupling or noise.

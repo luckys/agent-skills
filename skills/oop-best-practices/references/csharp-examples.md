@@ -815,6 +815,481 @@ public sealed class RegistrationService
 }
 ```
 
+## SOLID — Open/Closed Principle
+
+### Before
+
+```csharp
+public sealed class ShippingCalculator
+{
+    public Money Cost(string orderType)
+    {
+        if (orderType == "standard")
+        {
+            return new Money(500);
+        }
+        else if (orderType == "express")
+        {
+            return new Money(1500);
+        }
+        else if (orderType == "overnight")
+        {
+            return new Money(3000);
+        }
+
+        throw new ArgumentException("Unknown order type");
+    }
+}
+```
+
+### After
+
+```csharp
+public interface IShippingPolicy
+{
+    Money Cost();
+}
+
+public sealed class StandardShipping : IShippingPolicy
+{
+    public Money Cost()
+    {
+        return new Money(500);
+    }
+}
+
+public sealed class ExpressShipping : IShippingPolicy
+{
+    public Money Cost()
+    {
+        return new Money(1500);
+    }
+}
+
+public sealed class OvernightShipping : IShippingPolicy
+{
+    public Money Cost()
+    {
+        return new Money(3000);
+    }
+}
+
+public sealed class ShippingCalculator
+{
+    private readonly IShippingPolicy policy;
+
+    public ShippingCalculator(IShippingPolicy policy)
+    {
+        this.policy = policy;
+    }
+
+    public Money Cost()
+    {
+        return policy.Cost();
+    }
+}
+```
+
+## SOLID — Liskov Substitution Principle
+
+### Before
+
+```csharp
+public class Collection
+{
+    private readonly List<string> items = new();
+
+    public virtual void Add(string item)
+    {
+        items.Add(item);
+    }
+
+    public int Count()
+    {
+        return items.Count;
+    }
+}
+
+// LSP violation: the subtype refuses behaviour the base type promises
+public sealed class ReadOnlyCollection : Collection
+{
+    public override void Add(string item)
+    {
+        throw new NotSupportedException("This collection is read-only");
+    }
+}
+```
+
+### After
+
+```csharp
+public sealed class MutableCollection
+{
+    private readonly List<string> items = new();
+
+    public void Add(string item)
+    {
+        items.Add(item);
+    }
+
+    public int Count()
+    {
+        return items.Count;
+    }
+}
+
+public sealed class ReadOnlyCollection
+{
+    private readonly IReadOnlyList<string> items;
+
+    public ReadOnlyCollection(IReadOnlyList<string> items)
+    {
+        this.items = items;
+    }
+
+    public int Count()
+    {
+        return items.Count;
+    }
+}
+```
+
+## SOLID — Interface Segregation Principle
+
+### Before
+
+```csharp
+public interface IWorker
+{
+    void Work();
+    void Eat();
+    void Sleep();
+}
+
+public sealed class RobotWorker : IWorker
+{
+    public void Work()
+    {
+        // performs work
+    }
+
+    public void Eat()
+    {
+        throw new NotSupportedException("Robots do not eat");
+    }
+
+    public void Sleep()
+    {
+        throw new NotSupportedException("Robots do not sleep");
+    }
+}
+```
+
+### After
+
+```csharp
+public interface IWorkable
+{
+    void Work();
+}
+
+public interface IEatable
+{
+    void Eat();
+}
+
+public interface ISleepable
+{
+    void Sleep();
+}
+
+public sealed class RobotWorker : IWorkable
+{
+    public void Work()
+    {
+        // performs work
+    }
+}
+
+public sealed class HumanWorker : IWorkable, IEatable, ISleepable
+{
+    public void Work()
+    {
+        // performs work
+    }
+
+    public void Eat()
+    {
+        // takes a meal break
+    }
+
+    public void Sleep()
+    {
+        // rests overnight
+    }
+}
+```
+
+## SOLID — Dependency Inversion Principle
+
+### Before
+
+```csharp
+public sealed class OrderProcessor
+{
+    public void Process(Order order)
+    {
+        // high-level policy depends directly on a concrete infrastructure class
+        var database = new PostgresDatabase();
+        database.Save(order);
+    }
+}
+```
+
+### After
+
+```csharp
+// The interface is defined in the domain, owned by OrderProcessor
+public interface IOrderStore
+{
+    void Save(Order order);
+}
+
+public sealed class OrderProcessor
+{
+    private readonly IOrderStore store;
+
+    public OrderProcessor(IOrderStore store)
+    {
+        this.store = store;
+    }
+
+    public void Process(Order order)
+    {
+        store.Save(order);
+    }
+}
+
+public sealed class PostgresOrderStore : IOrderStore
+{
+    public void Save(Order order)
+    {
+        // persist to PostgreSQL
+    }
+}
+```
+
+## Object Calisthenics — One Level of Indentation
+
+### Before
+
+```csharp
+public sealed class ReportGenerator
+{
+    public string GenerateReport(IEnumerable<Order> orders)
+    {
+        var lines = new List<string>();
+        foreach (var order in orders)
+        {
+            if (order.IsComplete())
+            {
+                foreach (var item in order.Items())
+                {
+                    if (item.Price().Value() > 5000)
+                    {
+                        lines.Add($"{item.Name()}: {item.Price().Value()}");
+                    }
+                }
+            }
+        }
+        return string.Join("\n", lines);
+    }
+}
+```
+
+### After
+
+```csharp
+public sealed class ReportGenerator
+{
+    public string GenerateReport(IEnumerable<Order> orders)
+    {
+        var lines = CompleteOrders(orders)
+            .SelectMany(ExpensiveItems)
+            .Select(FormatItem);
+
+        return string.Join("\n", lines);
+    }
+
+    private IEnumerable<Order> CompleteOrders(IEnumerable<Order> orders)
+    {
+        return orders.Where(order => order.IsComplete());
+    }
+
+    private IEnumerable<OrderItem> ExpensiveItems(Order order)
+    {
+        return order.Items().Where(item => item.Price().Value() > 5000);
+    }
+
+    private string FormatItem(OrderItem item)
+    {
+        return $"{item.Name()}: {item.Price().Value()}";
+    }
+}
+```
+
+## Object Calisthenics — No Getters/Setters
+
+### Before
+
+```csharp
+public sealed class Rectangle
+{
+    private readonly int width;
+    private readonly int height;
+
+    public Rectangle(int width, int height)
+    {
+        this.width = width;
+        this.height = height;
+    }
+
+    public int GetWidth()
+    {
+        return width;
+    }
+
+    public int GetHeight()
+    {
+        return height;
+    }
+}
+
+// callers must reach in and compute behaviour externally
+var area = rect.GetWidth() * rect.GetHeight();
+var perimeter = 2 * (rect.GetWidth() + rect.GetHeight());
+```
+
+### After
+
+```csharp
+public sealed class Rectangle
+{
+    private readonly int width;
+    private readonly int height;
+
+    public Rectangle(int width, int height)
+    {
+        this.width = width;
+        this.height = height;
+    }
+
+    public int Area()
+    {
+        return width * height;
+    }
+
+    public int Perimeter()
+    {
+        return 2 * (width + height);
+    }
+
+    public bool IsSquare()
+    {
+        return width == height;
+    }
+}
+```
+
+## Object Calisthenics — Don't Abbreviate
+
+### Before
+
+```csharp
+public sealed class OrdMgr
+{
+    public Money Calc(Order o)
+    {
+        return o.Lines().Total();
+    }
+
+    public void Proc(Order o)
+    {
+        // process the order
+    }
+}
+```
+
+### After
+
+```csharp
+public sealed class OrderManager
+{
+    public Money CalculateTotal(Order order)
+    {
+        return order.Lines().Total();
+    }
+
+    public void ProcessOrder(Order order)
+    {
+        // process the order
+    }
+}
+```
+
+## Explaining Message
+
+### Before
+
+```csharp
+public sealed class Subscription
+{
+    private readonly DateTime startDate;
+    private readonly int durationInDays;
+    private readonly bool isCancelled;
+
+    public Subscription(DateTime startDate, int durationInDays, bool isCancelled)
+    {
+        this.startDate = startDate;
+        this.durationInDays = durationInDays;
+        this.isCancelled = isCancelled;
+    }
+
+    public bool IsExpired()
+    {
+        return isCancelled || DateTime.UtcNow > startDate.AddDays(durationInDays);
+    }
+}
+```
+
+### After
+
+```csharp
+public sealed class Subscription
+{
+    private readonly DateTime startDate;
+    private readonly int durationInDays;
+    private readonly bool isCancelled;
+
+    public Subscription(DateTime startDate, int durationInDays, bool isCancelled)
+    {
+        this.startDate = startDate;
+        this.durationInDays = durationInDays;
+        this.isCancelled = isCancelled;
+    }
+
+    public bool IsExpired()
+    {
+        return isCancelled || DateTime.UtcNow > ExpirationDate();
+    }
+
+    private DateTime ExpirationDate()
+    {
+        return startDate.AddDays(durationInDays);
+    }
+}
+```
+
 ## What to Notice
 
 - Rich models and clear object responsibilities help keep knowledge close to the concept.
@@ -822,3 +1297,4 @@ public sealed class RegistrationService
 - Protocol-style roles appear as narrow interfaces instead of broad inheritance trees.
 - Composition and message passing keep dependencies understandable.
 - Wrapping primitives and splitting responsibilities keep each class focused on one reason to change.
+- SOLID principles, Object Calisthenics rules, and extracted explaining messages each reduce a different kind of coupling or noise.
