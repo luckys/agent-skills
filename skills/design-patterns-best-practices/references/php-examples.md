@@ -260,3 +260,802 @@ final class UserService
 - `UserService` depends only on the `EventListener` interface — it has no knowledge of `Logger` or `WelcomeEmailSender`.
 - New reactions to user registration are added by writing a new listener and calling `subscribe`; `UserService` is not touched.
 - The event object carries all the data listeners need, keeping the notification call-site clean.
+
+---
+
+## Command
+
+Encapsulates a request as an object, decoupling the sender from the executor and enabling undo/redo.
+
+```php
+interface Command
+{
+    public function execute(): void;
+    public function undo(): void;
+}
+
+final class TextEditor
+{
+    private string $content = '';
+
+    public function bold(string $text): void  { $this->content .= "<b>{$text}</b>"; }
+    public function italic(string $text): void { $this->content .= "<i>{$text}</i>"; }
+    public function removeLast(int $chars): void { $this->content = substr($this->content, 0, -$chars); }
+    public function getContent(): string { return $this->content; }
+}
+
+final class BoldCommand implements Command
+{
+    private readonly int $insertedLength;
+
+    public function __construct(private TextEditor $editor, private string $text)
+    {
+        $this->insertedLength = strlen("<b>{$text}</b>");
+    }
+
+    public function execute(): void { $this->editor->bold($this->text); }
+    public function undo(): void    { $this->editor->removeLast($this->insertedLength); }
+}
+
+final class CommandHistory
+{
+    /** @var Command[] */
+    private array $history = [];
+
+    public function execute(Command $command): void
+    {
+        $command->execute();
+        $this->history[] = $command;
+    }
+
+    public function undo(): void
+    {
+        if ($command = array_pop($this->history)) {
+            $command->undo();
+        }
+    }
+}
+```
+
+**What to notice:**
+- Each command captures both the action and enough context to reverse it, making undo a first-class concern.
+- `CommandHistory` orchestrates execution without knowing anything about the concrete commands it holds.
+- New operations (e.g., `ItalicCommand`) are additive — no existing class changes.
+
+---
+
+## Template Method
+
+Defines an algorithm skeleton in a base class; subclasses override specific steps without changing the overall structure.
+
+```php
+abstract class ReportGenerator
+{
+    // Template method — the invariant algorithm
+    final public function generate(): string
+    {
+        $data = $this->gatherData();
+        $formatted = $this->formatData($data);
+        return $this->output($formatted);
+    }
+
+    private function gatherData(): array
+    {
+        return ['sales' => 42_000, 'refunds' => 1_200];
+    }
+
+    abstract protected function formatData(array $data): string;
+
+    private function output(string $formatted): string
+    {
+        return $formatted;
+    }
+}
+
+final class CsvReportGenerator extends ReportGenerator
+{
+    protected function formatData(array $data): string
+    {
+        return implode(',', array_keys($data)) . "\n" . implode(',', $data);
+    }
+}
+
+final class PdfReportGenerator extends ReportGenerator
+{
+    protected function formatData(array $data): string
+    {
+        $lines = array_map(fn($k, $v) => "{$k}: {$v}", array_keys($data), $data);
+        return "[PDF]\n" . implode("\n", $lines);
+    }
+}
+```
+
+**What to notice:**
+- `final` on the template method prevents subclasses from breaking the algorithm's invariant structure.
+- Only the varying step (`formatData`) is abstract; shared steps remain in the base class, avoiding duplication.
+- Adding a new output format means writing one new subclass — nothing else changes.
+
+---
+
+## Chain of Responsibility
+
+Passes a request along a chain of handlers; each handler decides to handle it or forward it.
+
+```php
+interface Middleware
+{
+    public function handle(array $request, callable $next): mixed;
+}
+
+final class AuthMiddleware implements Middleware
+{
+    public function handle(array $request, callable $next): mixed
+    {
+        if (empty($request['token'])) {
+            return ['status' => 401, 'body' => 'Unauthorized'];
+        }
+        return $next($request);
+    }
+}
+
+final class LoggingMiddleware implements Middleware
+{
+    public function handle(array $request, callable $next): mixed
+    {
+        echo "[LOG] Handling request to {$request['path']}\n";
+        $response = $next($request);
+        echo "[LOG] Response status: {$response['status']}\n";
+        return $response;
+    }
+}
+
+final class Pipeline
+{
+    /** @param Middleware[] $middlewares */
+    public function __construct(private array $middlewares, private callable $handler) {}
+
+    public function run(array $request): mixed
+    {
+        $chain = array_reduce(
+            array_reverse($this->middlewares),
+            fn(callable $next, Middleware $mw) => fn($req) => $mw->handle($req, $next),
+            $this->handler,
+        );
+        return $chain($request);
+    }
+}
+```
+
+**What to notice:**
+- Each middleware is unaware of what comes before or after it — coupling runs only through the `$next` callable.
+- The pipeline composes handlers at construction time; reordering or inserting a middleware is a one-line change.
+- The terminal handler (the real controller) is just another callable, keeping it free of middleware concerns.
+
+---
+
+## Iterator
+
+Provides sequential access to a collection's elements without exposing its internal structure.
+
+```php
+final class NumberRange implements \Iterator
+{
+    private int $current;
+
+    public function __construct(
+        private readonly int $start,
+        private readonly int $end,
+        private readonly int $step = 1,
+    ) {
+        $this->current = $start;
+    }
+
+    public function current(): int  { return $this->current; }
+    public function key(): int      { return ($this->current - $this->start) / $this->step; }
+    public function next(): void    { $this->current += $this->step; }
+    public function rewind(): void  { $this->current = $this->start; }
+    public function valid(): bool   { return $this->current <= $this->end; }
+}
+
+// Usage
+foreach (new NumberRange(start: 0, end: 10, step: 2) as $n) {
+    echo $n . ' '; // 0 2 4 6 8 10
+}
+```
+
+**What to notice:**
+- Implementing PHP's built-in `Iterator` interface makes the custom collection a first-class citizen in `foreach` loops.
+- The step logic lives entirely inside the iterator — callers never manipulate the underlying state.
+- The same range can be iterated multiple times because `rewind()` resets internal state.
+
+---
+
+## Mediator
+
+Centralizes communication between objects so they do not reference each other directly.
+
+```php
+interface ChatMediator
+{
+    public function sendMessage(string $message, User $sender): void;
+}
+
+final class ChatRoom implements ChatMediator
+{
+    /** @var User[] */
+    private array $users = [];
+
+    public function join(User $user): void
+    {
+        $this->users[] = $user;
+    }
+
+    public function sendMessage(string $message, User $sender): void
+    {
+        foreach ($this->users as $user) {
+            if ($user !== $sender) {
+                $user->receive($message, $sender->name);
+            }
+        }
+    }
+}
+
+final class User
+{
+    public function __construct(
+        public readonly string $name,
+        private readonly ChatMediator $mediator,
+    ) {}
+
+    public function send(string $message): void
+    {
+        $this->mediator->sendMessage($message, $this);
+    }
+
+    public function receive(string $message, string $from): void
+    {
+        echo "[{$this->name}] received from {$from}: {$message}\n";
+    }
+}
+```
+
+**What to notice:**
+- Users hold a reference to the mediator only — they have zero knowledge of other users.
+- All routing logic lives in `ChatRoom`; adding features like filtering or logging touches one class.
+- Replacing `ChatRoom` with a different mediator (e.g., a moderated room) requires no changes to `User`.
+
+---
+
+## Builder
+
+Constructs a complex object step by step, separating its assembly from its representation.
+
+```php
+final class Query
+{
+    public function __construct(
+        public readonly string $table,
+        public readonly array $columns,
+        public readonly array $conditions,
+        public readonly ?int $limit,
+    ) {}
+}
+
+final class QueryBuilder
+{
+    private array $columns = ['*'];
+    private array $conditions = [];
+    private ?int $limit = null;
+
+    public function __construct(private readonly string $table) {}
+
+    public function select(string ...$columns): static
+    {
+        $this->columns = $columns;
+        return $this;
+    }
+
+    public function where(string $condition): static
+    {
+        $this->conditions[] = $condition;
+        return $this;
+    }
+
+    public function limit(int $limit): static
+    {
+        $this->limit = $limit;
+        return $this;
+    }
+
+    public function build(): Query
+    {
+        return new Query(
+            table: $this->table,
+            columns: $this->columns,
+            conditions: $this->conditions,
+            limit: $this->limit,
+        );
+    }
+}
+
+// Usage
+$query = (new QueryBuilder('users'))
+    ->select('id', 'email')
+    ->where('active = 1')
+    ->limit(25)
+    ->build();
+```
+
+**What to notice:**
+- Each chainable method returns `static`, preserving the builder's concrete type when subclassed.
+- `build()` is the only place where the immutable `Query` value object is constructed — all validation can live there.
+- The builder accumulates optional configuration without requiring long constructor argument lists.
+
+---
+
+## Abstract Factory
+
+Creates families of related objects without specifying their concrete classes.
+
+```php
+interface Button
+{
+    public function render(): string;
+}
+
+interface Checkbox
+{
+    public function render(): string;
+}
+
+interface UIFactory
+{
+    public function createButton(): Button;
+    public function createCheckbox(): Checkbox;
+}
+
+final class WindowsButton implements Button
+{
+    public function render(): string { return '<button class="win">OK</button>'; }
+}
+
+final class WindowsCheckbox implements Checkbox
+{
+    public function render(): string { return '<input type="checkbox" class="win">'; }
+}
+
+final class MacButton implements Button
+{
+    public function render(): string { return '<button class="mac">OK</button>'; }
+}
+
+final class MacCheckbox implements Checkbox
+{
+    public function render(): string { return '<input type="checkbox" class="mac">'; }
+}
+
+final class WindowsFactory implements UIFactory
+{
+    public function createButton(): Button     { return new WindowsButton(); }
+    public function createCheckbox(): Checkbox { return new WindowsCheckbox(); }
+}
+
+final class MacFactory implements UIFactory
+{
+    public function createButton(): Button     { return new MacButton(); }
+    public function createCheckbox(): Checkbox { return new MacCheckbox(); }
+}
+
+// Usage
+function renderUI(UIFactory $factory): void
+{
+    echo $factory->createButton()->render() . "\n";
+    echo $factory->createCheckbox()->render() . "\n";
+}
+```
+
+**What to notice:**
+- The factory interface guarantees that all produced objects belong to the same family — mixing Windows buttons with Mac checkboxes is impossible by construction.
+- `renderUI` depends only on interfaces; swapping the entire platform requires changing one argument at the call site.
+- Adding a Linux family means adding three classes and one factory — no existing code changes.
+
+---
+
+## Singleton
+
+Ensures only one instance of a class exists and provides a global access point.
+
+```php
+final class Logger
+{
+    private static ?Logger $instance = null;
+    private array $logs = [];
+
+    private function __construct() {}
+
+    public static function getInstance(): static
+    {
+        if (static::$instance === null) {
+            static::$instance = new static();
+        }
+        return static::$instance;
+    }
+
+    public function log(string $message): void
+    {
+        $this->logs[] = date('H:i:s') . ' ' . $message;
+        echo end($this->logs) . "\n";
+    }
+}
+
+// Usage
+Logger::getInstance()->log('Application started');
+Logger::getInstance()->log('Request received');
+```
+
+> **Trade-off note:** Singleton is widely considered an anti-pattern. It introduces hidden global state, making behaviour hard to predict across subsystems. The static access point hides dependencies (callers do not declare them), and the single instance is shared across tests, making isolation nearly impossible without resetting global state. Prefer dependency injection: construct one instance and pass it wherever it is needed.
+
+**What to notice:**
+- The private constructor and `static::$instance` guard enforce the single-instance contract at the language level.
+- Every call to `getInstance()` returns the same object, so state accumulated by one caller is visible to all others.
+- In most modern applications this pattern should be replaced by a DI container that manages object lifetimes explicitly.
+
+---
+
+## Proxy
+
+Provides a surrogate that controls access to another object, enabling lazy loading, access control, or logging.
+
+```php
+interface Image
+{
+    public function render(): string;
+}
+
+final class RealImage implements Image
+{
+    private readonly string $data;
+
+    public function __construct(private readonly string $path)
+    {
+        // Expensive: simulates loading from disk / network
+        $this->data = "pixel-data-from({$path})";
+        echo "[RealImage] Loaded {$path}\n";
+    }
+
+    public function render(): string { return $this->data; }
+}
+
+final class LazyImageProxy implements Image
+{
+    private ?RealImage $real = null;
+
+    public function __construct(private readonly string $path) {}
+
+    public function render(): string
+    {
+        if ($this->real === null) {
+            $this->real = new RealImage($this->path);
+        }
+        return $this->real->render();
+    }
+}
+
+// Usage
+$image = new LazyImageProxy('photo.jpg'); // no loading yet
+echo $image->render();                    // loads on first access
+echo $image->render();                    // served from cache
+```
+
+**What to notice:**
+- The proxy implements the same `Image` interface, so callers are unaware they are talking to a surrogate.
+- The expensive `RealImage` constructor is deferred until the resource is actually needed.
+- Subsequent calls skip construction because the proxy caches the real instance after the first load.
+
+---
+
+## Facade
+
+Provides a simplified interface to a complex subsystem, hiding its internal wiring from callers.
+
+```php
+final class Amplifier
+{
+    public function on(): void  { echo "[Amplifier] On\n"; }
+    public function off(): void { echo "[Amplifier] Off\n"; }
+    public function setVolume(int $level): void { echo "[Amplifier] Volume {$level}\n"; }
+}
+
+final class DVDPlayer
+{
+    public function on(): void           { echo "[DVD] On\n"; }
+    public function off(): void          { echo "[DVD] Off\n"; }
+    public function play(string $movie): void { echo "[DVD] Playing {$movie}\n"; }
+}
+
+final class Projector
+{
+    public function on(): void  { echo "[Projector] On\n"; }
+    public function off(): void { echo "[Projector] Off\n"; }
+}
+
+final class HomeTheaterFacade
+{
+    public function __construct(
+        private readonly Amplifier $amp,
+        private readonly DVDPlayer $dvd,
+        private readonly Projector $projector,
+    ) {}
+
+    public function watchMovie(string $movie): void
+    {
+        $this->projector->on();
+        $this->amp->on();
+        $this->amp->setVolume(20);
+        $this->dvd->on();
+        $this->dvd->play($movie);
+    }
+
+    public function endMovie(): void
+    {
+        $this->dvd->off();
+        $this->amp->off();
+        $this->projector->off();
+    }
+}
+```
+
+**What to notice:**
+- The facade collapses a multi-step orchestration into two intent-named methods; callers never see the subsystem.
+- Each subsystem class remains unchanged and can still be used directly when fine-grained control is needed.
+- The facade does not add new behaviour — it only re-sequences existing calls.
+
+---
+
+## Bridge
+
+Decouples an abstraction from its implementation so both hierarchies can vary independently.
+
+```php
+interface DrawingApi
+{
+    public function drawCircle(float $x, float $y, float $radius): string;
+    public function drawSquare(float $x, float $y, float $side): string;
+}
+
+final class SvgDrawer implements DrawingApi
+{
+    public function drawCircle(float $x, float $y, float $radius): string
+    {
+        return "<circle cx=\"{$x}\" cy=\"{$y}\" r=\"{$radius}\"/>";
+    }
+
+    public function drawSquare(float $x, float $y, float $side): string
+    {
+        return "<rect x=\"{$x}\" y=\"{$y}\" width=\"{$side}\" height=\"{$side}\"/>";
+    }
+}
+
+final class CanvasDrawer implements DrawingApi
+{
+    public function drawCircle(float $x, float $y, float $radius): string
+    {
+        return "ctx.arc({$x},{$y},{$radius},0,2*Math.PI)";
+    }
+
+    public function drawSquare(float $x, float $y, float $side): string
+    {
+        return "ctx.fillRect({$x},{$y},{$side},{$side})";
+    }
+}
+
+abstract class Shape
+{
+    public function __construct(protected readonly DrawingApi $api) {}
+    abstract public function draw(): string;
+}
+
+final class Circle extends Shape
+{
+    public function __construct(DrawingApi $api, private float $x, private float $y, private float $radius)
+    {
+        parent::__construct($api);
+    }
+
+    public function draw(): string { return $this->api->drawCircle($this->x, $this->y, $this->radius); }
+}
+
+final class Square extends Shape
+{
+    public function __construct(DrawingApi $api, private float $x, private float $y, private float $side)
+    {
+        parent::__construct($api);
+    }
+
+    public function draw(): string { return $this->api->drawSquare($this->x, $this->y, $this->side); }
+}
+```
+
+**What to notice:**
+- There are two independent variation axes — shape type and rendering technology — that can grow without a combinatorial explosion of subclasses.
+- `Shape` subclasses delegate all rendering to the injected `DrawingApi`, holding zero renderer-specific logic.
+- Swapping from SVG to Canvas requires changing only the injected implementation at the call site.
+
+---
+
+## Flyweight
+
+Shares common intrinsic state between many fine-grained objects to reduce memory overhead.
+
+```php
+final class Font
+{
+    public function __construct(
+        public readonly string $family,
+        public readonly int $size,
+    ) {}
+}
+
+final class CharacterFactory
+{
+    /** @var array<string, Font> */
+    private array $cache = [];
+
+    public function getFont(string $family, int $size): Font
+    {
+        $key = "{$family}_{$size}";
+        if (!isset($this->cache[$key])) {
+            $this->cache[$key] = new Font(family: $family, size: $size);
+            echo "[Factory] Created font {$key}\n";
+        }
+        return $this->cache[$key];
+    }
+
+    public function cacheSize(): int { return count($this->cache); }
+}
+
+final class Character
+{
+    public function __construct(
+        public readonly string $char,
+        public readonly Font $font,  // shared flyweight
+        public readonly int $x,      // extrinsic (unique per character)
+        public readonly int $y,
+    ) {}
+}
+
+// Usage: 1 000 characters share just 2 Font objects
+$factory = new CharacterFactory();
+$characters = [];
+for ($i = 0; $i < 1_000; $i++) {
+    $characters[] = new Character(
+        char: chr(65 + ($i % 26)),
+        font: $factory->getFont('Arial', 12),
+        x: $i * 8,
+        y: 0,
+    );
+}
+echo $factory->cacheSize(); // 1
+```
+
+**What to notice:**
+- Intrinsic state (font family + size) lives in a shared `Font` object; extrinsic state (x, y coordinates) stays in `Character`.
+- The factory is the only place that decides whether to reuse or create — callers never manage the cache.
+- 1 000 characters share one `Font` instance; without Flyweight each would hold its own copy.
+
+---
+
+## Composite
+
+Treats individual objects and compositions uniformly through a shared interface.
+
+```php
+interface FilesystemNode
+{
+    public function getName(): string;
+    public function getSize(): int;
+}
+
+final class File implements FilesystemNode
+{
+    public function __construct(
+        private readonly string $name,
+        private readonly int $size,
+    ) {}
+
+    public function getName(): string { return $this->name; }
+    public function getSize(): int    { return $this->size; }
+}
+
+final class Directory implements FilesystemNode
+{
+    /** @var FilesystemNode[] */
+    private array $children = [];
+
+    public function __construct(private readonly string $name) {}
+
+    public function add(FilesystemNode $node): void { $this->children[] = $node; }
+
+    public function getName(): string { return $this->name; }
+
+    public function getSize(): int
+    {
+        return array_sum(array_map(fn($n) => $n->getSize(), $this->children));
+    }
+}
+
+// Usage
+$root = new Directory('root');
+$src  = new Directory('src');
+$src->add(new File('main.php', 1_200));
+$src->add(new File('helper.php', 800));
+$root->add($src);
+$root->add(new File('README.md', 300));
+
+echo $root->getSize(); // 2300
+```
+
+**What to notice:**
+- Client code calls `getSize()` on `FilesystemNode` without knowing whether it is a leaf or a subtree.
+- `Directory::getSize()` recurses naturally — the tree structure is encoded in the object graph, not in conditional logic.
+- Adding a new node type (e.g., `Symlink`) only requires implementing `FilesystemNode`.
+
+---
+
+## Result Pattern
+
+Returns a typed Success/Failure value object instead of throwing exceptions, making error paths explicit in the type system.
+
+```php
+final class Result
+{
+    private function __construct(
+        private readonly bool $success,
+        private readonly mixed $value,
+        private readonly ?string $error,
+    ) {}
+
+    public static function success(mixed $value): static
+    {
+        return new static(true, $value, null);
+    }
+
+    public static function failure(string $error): static
+    {
+        return new static(false, null, $error);
+    }
+
+    public function isSuccess(): bool   { return $this->success; }
+    public function getValue(): mixed   { return $this->value; }
+    public function getError(): ?string { return $this->error; }
+}
+
+final class UserRegistration
+{
+    public function register(string $email, string $password): Result
+    {
+        if (!filter_var($email, FILTER_VALIDATE_EMAIL)) {
+            return Result::failure('Invalid email address');
+        }
+        if (strlen($password) < 8) {
+            return Result::failure('Password must be at least 8 characters');
+        }
+        // ... persist user ...
+        return Result::success(['id' => 42, 'email' => $email]);
+    }
+}
+
+// Usage
+$result = (new UserRegistration())->register('user@example.com', 'secret123');
+
+if ($result->isSuccess()) {
+    echo 'Registered: ' . $result->getValue()['email'];
+} else {
+    echo 'Error: ' . $result->getError();
+}
+```
+
+**What to notice:**
+- Callers are forced to check `isSuccess()` before accessing the value — the error path cannot be silently ignored.
+- No exception crosses a method boundary; failures are first-class return values, making them easy to test and compose.
+- Named constructors (`success` / `failure`) keep the distinction clear at the call site without exposing the constructor's boolean flag.

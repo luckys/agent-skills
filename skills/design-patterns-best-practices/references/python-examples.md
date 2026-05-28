@@ -225,3 +225,798 @@ class UserService:
 - `UserService` depends only on the `EventListener` protocol — it has no knowledge of `Logger` or `WelcomeEmailSender`.
 - New reactions to user registration are added by writing a new listener and calling `subscribe`; `UserService` is not touched.
 - The event object carries all the data listeners need, keeping the notification call-site clean.
+
+---
+
+## Command
+
+Encapsulate a request as an object so that the sender and the executor are fully decoupled — enabling undo/redo, queuing, and logging of operations.
+
+```python
+from abc import ABC, abstractmethod
+
+
+class Command(ABC):
+    @abstractmethod
+    def execute(self) -> None: ...
+
+    @abstractmethod
+    def undo(self) -> None: ...
+
+
+class TextEditor:
+    def __init__(self) -> None:
+        self.content: str = ""
+
+    def apply_bold(self, text: str) -> None:
+        self.content += f"**{text}**"
+
+    def remove_last(self, length: int) -> None:
+        self.content = self.content[:-length]
+
+
+class BoldCommand(Command):
+    def __init__(self, editor: TextEditor, text: str) -> None:
+        self._editor = editor
+        self._text = text
+        self._applied_length = len(f"**{text}**")
+
+    def execute(self) -> None:
+        self._editor.apply_bold(self._text)
+
+    def undo(self) -> None:
+        self._editor.remove_last(self._applied_length)
+
+
+class CommandHistory:
+    def __init__(self) -> None:
+        self._history: list[Command] = []
+
+    def execute(self, command: Command) -> None:
+        command.execute()
+        self._history.append(command)
+
+    def undo(self) -> None:
+        if self._history:
+            self._history.pop().undo()
+```
+
+**What to notice:**
+- Each command object captures both the action (`execute`) and its inverse (`undo`), keeping undo/redo logic out of the editor.
+- `CommandHistory` is blind to what any command does — it only manages the stack, making it reusable for any command type.
+- Adding a new operation (e.g., `ItalicCommand`) is an additive change; no existing class is modified.
+
+---
+
+## Template Method
+
+Define a fixed algorithm skeleton in a base class and let subclasses override only the steps that vary, without changing the overall structure.
+
+```python
+from abc import ABC, abstractmethod
+
+
+class ReportGenerator(ABC):
+    def generate(self, raw_data: list[dict]) -> str:
+        data = self._gather_data(raw_data)
+        formatted = self._format_data(data)
+        return self._output(formatted)
+
+    def _gather_data(self, raw_data: list[dict]) -> list[dict]:
+        return [row for row in raw_data if row]
+
+    @abstractmethod
+    def _format_data(self, data: list[dict]) -> str: ...
+
+    def _output(self, formatted: str) -> str:
+        return formatted
+
+
+class CsvReportGenerator(ReportGenerator):
+    def _format_data(self, data: list[dict]) -> str:
+        if not data:
+            return ""
+        headers = ",".join(data[0].keys())
+        rows = "\n".join(",".join(str(v) for v in row.values()) for row in data)
+        return f"{headers}\n{rows}"
+
+
+class PdfReportGenerator(ReportGenerator):
+    def _format_data(self, data: list[dict]) -> str:
+        lines = [" | ".join(str(v) for v in row.values()) for row in data]
+        return "\n".join(lines)
+```
+
+**What to notice:**
+- The invariant steps (`_gather_data`, `_output`) live once in the base class; subclasses touch only what actually differs.
+- The `generate` method is the template — callers invoke it without knowing which subclass they are using.
+- Adding a new output format (e.g., JSON) requires only a new subclass that overrides `_format_data`.
+
+---
+
+## Chain of Responsibility
+
+Pass a request along a chain of handlers; each handler decides to process the request, pass it forward, or stop the chain.
+
+```python
+from __future__ import annotations
+from abc import ABC, abstractmethod
+from dataclasses import dataclass
+
+
+@dataclass
+class HttpRequest:
+    path: str
+    token: str | None
+
+
+class Middleware(ABC):
+    def __init__(self) -> None:
+        self._next: Middleware | None = None
+
+    def set_next(self, handler: Middleware) -> Middleware:
+        self._next = handler
+        return handler
+
+    def pass_to_next(self, request: HttpRequest) -> str:
+        if self._next:
+            return self._next.handle(request)
+        return "200 OK"
+
+    @abstractmethod
+    def handle(self, request: HttpRequest) -> str: ...
+
+
+class AuthMiddleware(Middleware):
+    def handle(self, request: HttpRequest) -> str:
+        if not request.token:
+            return "401 Unauthorized"
+        return self.pass_to_next(request)
+
+
+class LoggingMiddleware(Middleware):
+    def handle(self, request: HttpRequest) -> str:
+        print(f"[LOG] {request.path}")
+        return self.pass_to_next(request)
+
+
+class RequestHandler(Middleware):
+    def handle(self, request: HttpRequest) -> str:
+        return f"Handled: {request.path}"
+
+
+# Wiring
+auth = AuthMiddleware()
+auth.set_next(LoggingMiddleware()).set_next(RequestHandler())
+```
+
+**What to notice:**
+- Each middleware is unaware of the others — it only knows how to call `pass_to_next`.
+- The chain is assembled at the call site, not hardcoded inside any handler, so order and membership are easy to change.
+- Short-circuiting (returning early from `AuthMiddleware`) stops the chain without any special coordination.
+
+---
+
+## Iterator
+
+Provide sequential access to elements of a collection without exposing its internal representation.
+
+```python
+from __future__ import annotations
+
+
+class NumberRangeIterator:
+    def __init__(self, start: int, end: int, step: int) -> None:
+        self._current = start
+        self._end = end
+        self._step = step
+
+    def __iter__(self) -> NumberRangeIterator:
+        return self
+
+    def __next__(self) -> int:
+        if self._current >= self._end:
+            raise StopIteration
+        value = self._current
+        self._current += self._step
+        return value
+
+
+class NumberRange:
+    def __init__(self, start: int, end: int, step: int = 1) -> None:
+        self._start = start
+        self._end = end
+        self._step = step
+
+    def __iter__(self) -> NumberRangeIterator:
+        return NumberRangeIterator(self._start, self._end, self._step)
+
+
+# Usage — works with all Python iteration protocols
+for n in NumberRange(0, 10, 2):
+    print(n)  # 0 2 4 6 8
+
+total = sum(NumberRange(1, 6))  # 15
+```
+
+**What to notice:**
+- `NumberRange` exposes no list, index, or internal cursor — callers iterate through the public protocol only.
+- Separating the iterator object from the collection lets multiple independent iterations run over the same range simultaneously.
+- Implementing `__iter__` and `__next__` integrates seamlessly with `for`, `sum`, `list()`, and every other Python construct that consumes iterables.
+
+---
+
+## Mediator
+
+Centralize communication between objects so that they do not reference each other directly, reducing coupling across the system.
+
+```python
+from __future__ import annotations
+from dataclasses import dataclass, field
+
+
+class ChatRoom:
+    def __init__(self) -> None:
+        self._users: list[User] = []
+
+    def join(self, user: User) -> None:
+        self._users.append(user)
+
+    def send(self, message: str, sender: User) -> None:
+        for user in self._users:
+            if user is not sender:
+                user.receive(message, sender.name)
+
+
+@dataclass
+class User:
+    name: str
+    _room: ChatRoom = field(repr=False, default=None)  # type: ignore[assignment]
+
+    def join(self, room: ChatRoom) -> None:
+        self._room = room
+        room.join(self)
+
+    def send(self, message: str) -> None:
+        self._room.send(message, self)
+
+    def receive(self, message: str, from_name: str) -> None:
+        print(f"[{self.name}] received from {from_name}: {message}")
+
+
+# Usage
+room = ChatRoom()
+alice, bob = User("Alice"), User("Bob")
+alice.join(room)
+bob.join(room)
+alice.send("Hello!")  # Bob receives; Alice does not
+```
+
+**What to notice:**
+- `User` objects never hold references to each other — all routing goes through `ChatRoom`.
+- Adding a new participant requires no changes to existing `User` instances or to `ChatRoom`'s routing logic.
+- The mediator is the single place where delivery rules live (e.g., "don't echo back to sender"), so that logic is not scattered across users.
+
+---
+
+## Builder
+
+Construct a complex object step by step through a fluent interface, separating the assembly process from the final representation.
+
+```python
+from __future__ import annotations
+from dataclasses import dataclass, field
+
+
+@dataclass
+class Query:
+    table: str
+    columns: list[str]
+    conditions: list[str]
+    limit: int | None
+
+
+class QueryBuilder:
+    def __init__(self, table: str) -> None:
+        self._table = table
+        self._columns: list[str] = ["*"]
+        self._conditions: list[str] = []
+        self._limit: int | None = None
+
+    def select(self, *columns: str) -> QueryBuilder:
+        self._columns = list(columns)
+        return self
+
+    def where(self, condition: str) -> QueryBuilder:
+        self._conditions.append(condition)
+        return self
+
+    def limit(self, n: int) -> QueryBuilder:
+        self._limit = n
+        return self
+
+    def build(self) -> Query:
+        return Query(
+            table=self._table,
+            columns=self._columns,
+            conditions=self._conditions,
+            limit=self._limit,
+        )
+
+
+# Usage
+query = (
+    QueryBuilder("users")
+    .select("id", "email")
+    .where("active = true")
+    .where("age > 18")
+    .limit(50)
+    .build()
+)
+```
+
+**What to notice:**
+- Each method returns `self`, enabling a fluent chain that reads like a sentence describing the desired query.
+- `build()` is the single point where the final object is assembled — partial state in the builder is never exposed.
+- Construction order is flexible; callers can omit optional steps (`limit`, `where`) without receiving a broken object.
+
+---
+
+## Abstract Factory
+
+Create families of related objects without coupling client code to any concrete class, ensuring that objects from one family are always used together.
+
+```python
+from abc import ABC, abstractmethod
+
+
+class Button(ABC):
+    @abstractmethod
+    def render(self) -> str: ...
+
+
+class Checkbox(ABC):
+    @abstractmethod
+    def render(self) -> str: ...
+
+
+class UIFactory(ABC):
+    @abstractmethod
+    def create_button(self) -> Button: ...
+
+    @abstractmethod
+    def create_checkbox(self) -> Checkbox: ...
+
+
+class WindowsButton(Button):
+    def render(self) -> str:
+        return "<WinButton>"
+
+
+class WindowsCheckbox(Checkbox):
+    def render(self) -> str:
+        return "<WinCheckbox>"
+
+
+class MacButton(Button):
+    def render(self) -> str:
+        return "<MacButton>"
+
+
+class MacCheckbox(Checkbox):
+    def render(self) -> str:
+        return "<MacCheckbox>"
+
+
+class WindowsFactory(UIFactory):
+    def create_button(self) -> Button:
+        return WindowsButton()
+
+    def create_checkbox(self) -> Checkbox:
+        return WindowsCheckbox()
+
+
+class MacFactory(UIFactory):
+    def create_button(self) -> Button:
+        return MacButton()
+
+    def create_checkbox(self) -> Checkbox:
+        return MacCheckbox()
+
+
+def render_ui(factory: UIFactory) -> None:
+    print(factory.create_button().render())
+    print(factory.create_checkbox().render())
+```
+
+**What to notice:**
+- `render_ui` never mentions Windows or Mac — it works with any factory that satisfies `UIFactory`.
+- The factory enforces consistency: a `WindowsFactory` can never accidentally hand out a `MacCheckbox`.
+- Adding a new platform (e.g., `LinuxFactory`) is entirely additive; existing code is untouched.
+
+---
+
+## Singleton
+
+Ensure that a class has exactly one instance and provide a global access point to it.
+
+```python
+class Logger:
+    _instance: "Logger | None" = None
+
+    def __new__(cls) -> "Logger":
+        if cls._instance is None:
+            cls._instance = super().__new__(cls)
+            cls._instance._log: list[str] = []
+        return cls._instance
+
+    def log(self, message: str) -> None:
+        self._log.append(message)
+        print(f"[LOG] {message}")
+
+    def entries(self) -> list[str]:
+        return list(self._log)
+
+
+# Both references point to the same object
+a = Logger()
+b = Logger()
+assert a is b
+```
+
+> **Trade-off note:** Singleton is widely considered an anti-pattern in application code. The shared instance is effectively global state, which creates hidden coupling between modules, makes execution order matter in surprising ways, and makes unit testing difficult — tests cannot easily replace the instance with a test double. Prefer passing a single instance through dependency injection (constructor or function argument) instead of fetching it via `__new__` or a class method.
+
+**What to notice:**
+- `__new__` guards construction, so `Logger()` always returns the same object regardless of how many times it is called.
+- The pattern solves a real problem (one shared resource), but the solution introduces global state as a side effect.
+- Dependency injection achieves the same "one instance" goal while keeping the object replaceable and the dependency explicit.
+
+---
+
+## Proxy
+
+Provide a surrogate object that controls access to another object — deferring expensive work, adding access control, or logging transparently.
+
+```python
+from abc import ABC, abstractmethod
+
+
+class Image(ABC):
+    @abstractmethod
+    def display(self) -> None: ...
+
+
+class RealImage(Image):
+    def __init__(self, path: str) -> None:
+        self._path = path
+        self._load()
+
+    def _load(self) -> None:
+        print(f"[LOAD] Loading image from disk: {self._path}")
+
+    def display(self) -> None:
+        print(f"[DISPLAY] {self._path}")
+
+
+class VirtualImageProxy(Image):
+    def __init__(self, path: str) -> None:
+        self._path = path
+        self._real: RealImage | None = None
+
+    def display(self) -> None:
+        if self._real is None:
+            self._real = RealImage(self._path)  # loaded on first access
+        self._real.display()
+
+
+# Usage
+image = VirtualImageProxy("photo.jpg")
+# No disk I/O yet
+image.display()  # [LOAD] + [DISPLAY] on first call
+image.display()  # [DISPLAY] only — already loaded
+```
+
+**What to notice:**
+- `VirtualImageProxy` shares the exact same interface as `RealImage`, so callers need no special handling.
+- The expensive `_load` call is deferred until the resource is actually needed, not at construction time.
+- The proxy is transparent: swapping `VirtualImageProxy` for `RealImage` requires no changes at the call site.
+
+---
+
+## Facade
+
+Provide a single simplified interface to a complex subsystem, shielding clients from the coordination details between its parts.
+
+```python
+class Amplifier:
+    def on(self) -> None:  print("[AMP] On")
+    def off(self) -> None: print("[AMP] Off")
+    def set_volume(self, level: int) -> None: print(f"[AMP] Volume {level}")
+
+
+class DVDPlayer:
+    def on(self) -> None:  print("[DVD] On")
+    def off(self) -> None: print("[DVD] Off")
+    def play(self, movie: str) -> None: print(f"[DVD] Playing '{movie}'")
+
+
+class Projector:
+    def on(self) -> None:  print("[PROJ] On")
+    def off(self) -> None: print("[PROJ] Off")
+
+
+class HomeTheaterFacade:
+    def __init__(self, amp: Amplifier, dvd: DVDPlayer, proj: Projector) -> None:
+        self._amp = amp
+        self._dvd = dvd
+        self._proj = proj
+
+    def watch_movie(self, movie: str) -> None:
+        self._proj.on()
+        self._amp.on()
+        self._amp.set_volume(5)
+        self._dvd.on()
+        self._dvd.play(movie)
+
+    def end_movie(self) -> None:
+        self._dvd.off()
+        self._amp.off()
+        self._proj.off()
+
+
+# Usage
+theater = HomeTheaterFacade(Amplifier(), DVDPlayer(), Projector())
+theater.watch_movie("Inception")
+theater.end_movie()
+```
+
+**What to notice:**
+- `HomeTheaterFacade` does not add new behavior — it only coordinates the existing subsystem in a repeatable sequence.
+- Clients call two methods; the six-step startup ritual is invisible to them.
+- The subsystem components remain fully accessible for advanced use; the facade is an optional convenience layer, not a gatekeeper.
+
+---
+
+## Bridge
+
+Decouple an abstraction from its implementation so that both can vary independently along separate axes.
+
+```python
+from abc import ABC, abstractmethod
+
+
+class DrawingAPI(ABC):
+    @abstractmethod
+    def draw_circle(self, x: float, y: float, radius: float) -> str: ...
+
+    @abstractmethod
+    def draw_square(self, x: float, y: float, side: float) -> str: ...
+
+
+class SVGDrawer(DrawingAPI):
+    def draw_circle(self, x: float, y: float, radius: float) -> str:
+        return f'<circle cx="{x}" cy="{y}" r="{radius}"/>'
+
+    def draw_square(self, x: float, y: float, side: float) -> str:
+        return f'<rect x="{x}" y="{y}" width="{side}" height="{side}"/>'
+
+
+class CanvasDrawer(DrawingAPI):
+    def draw_circle(self, x: float, y: float, radius: float) -> str:
+        return f"ctx.arc({x},{y},{radius},0,2*Math.PI)"
+
+    def draw_square(self, x: float, y: float, side: float) -> str:
+        return f"ctx.fillRect({x},{y},{side},{side})"
+
+
+class Shape(ABC):
+    def __init__(self, api: DrawingAPI) -> None:
+        self._api = api
+
+    @abstractmethod
+    def render(self) -> str: ...
+
+
+class Circle(Shape):
+    def __init__(self, x: float, y: float, radius: float, api: DrawingAPI) -> None:
+        super().__init__(api)
+        self._x, self._y, self._radius = x, y, radius
+
+    def render(self) -> str:
+        return self._api.draw_circle(self._x, self._y, self._radius)
+
+
+class Square(Shape):
+    def __init__(self, x: float, y: float, side: float, api: DrawingAPI) -> None:
+        super().__init__(api)
+        self._x, self._y, self._side = x, y, side
+
+    def render(self) -> str:
+        return self._api.draw_square(self._x, self._y, self._side)
+```
+
+**What to notice:**
+- There are two independent variation axes: shape type (`Circle`, `Square`) and rendering target (`SVGDrawer`, `CanvasDrawer`). Each axis can grow without affecting the other.
+- Without Bridge, supporting N shapes and M renderers would require N×M subclasses; here it requires N+M concrete classes.
+- The shape abstraction holds a reference to the implementation rather than inheriting from it — this is the defining structural choice of Bridge.
+
+---
+
+## Flyweight
+
+Share the intrinsic (context-independent) state of fine-grained objects so that a large number of instances can be maintained with low memory overhead.
+
+```python
+from __future__ import annotations
+from dataclasses import dataclass
+
+
+@dataclass(frozen=True)
+class Font:
+    family: str
+    size: int
+
+
+class FontFactory:
+    _cache: dict[tuple[str, int], Font] = {}
+
+    @classmethod
+    def get(cls, family: str, size: int) -> Font:
+        key = (family, size)
+        if key not in cls._cache:
+            cls._cache[key] = Font(family, size)
+        return cls._cache[key]
+
+
+@dataclass
+class Character:
+    char: str
+    position: int
+    font: Font  # shared flyweight — not duplicated per character
+
+
+# Simulating a 10 000-character document using only a handful of Font objects
+document: list[Character] = [
+    Character(char="a", position=i, font=FontFactory.get("Arial", 12))
+    for i in range(10_000)
+]
+
+assert len(FontFactory._cache) == 1          # one Font object
+assert document[0].font is document[9999].font  # same identity
+```
+
+**What to notice:**
+- `Font` is immutable (`frozen=True`) because shared state must not be mutated by any holder.
+- The factory is the single point of truth — callers never construct `Font` directly, so the cache is never bypassed.
+- Extrinsic state (`char`, `position`) stays in `Character`; only intrinsic state (`family`, `size`) is shared, keeping the pattern safe.
+
+---
+
+## Composite
+
+Treat individual objects and compositions of objects uniformly through a shared interface, enabling recursive tree structures.
+
+```python
+from __future__ import annotations
+from abc import ABC, abstractmethod
+
+
+class FileSystemComponent(ABC):
+    def __init__(self, name: str) -> None:
+        self.name = name
+
+    @abstractmethod
+    def get_size(self) -> int: ...
+
+    @abstractmethod
+    def display(self, indent: int = 0) -> None: ...
+
+
+class File(FileSystemComponent):
+    def __init__(self, name: str, size: int) -> None:
+        super().__init__(name)
+        self._size = size
+
+    def get_size(self) -> int:
+        return self._size
+
+    def display(self, indent: int = 0) -> None:
+        print(" " * indent + f"{self.name} ({self._size}B)")
+
+
+class Directory(FileSystemComponent):
+    def __init__(self, name: str) -> None:
+        super().__init__(name)
+        self._children: list[FileSystemComponent] = []
+
+    def add(self, component: FileSystemComponent) -> None:
+        self._children.append(component)
+
+    def get_size(self) -> int:
+        return sum(child.get_size() for child in self._children)
+
+    def display(self, indent: int = 0) -> None:
+        print(" " * indent + f"{self.name}/")
+        for child in self._children:
+            child.display(indent + 2)
+
+
+# Usage
+root = Directory("root")
+src = Directory("src")
+src.add(File("main.py", 1200))
+src.add(File("utils.py", 800))
+root.add(src)
+root.add(File("README.md", 400))
+root.display()
+print(root.get_size())  # 2400
+```
+
+**What to notice:**
+- `Directory.get_size()` calls `get_size()` on its children without knowing whether each child is a `File` or another `Directory` — the tree recurses naturally.
+- Client code operates on `FileSystemComponent` throughout; it never needs to branch on type.
+- Adding a new node type (e.g., `SymLink`) requires only a new subclass; traversal logic in `Directory` is untouched.
+
+---
+
+## Result Pattern
+
+Return a typed Success/Failure value instead of raising exceptions, making error paths explicit in the type signature and forcing callers to handle them.
+
+```python
+from __future__ import annotations
+from dataclasses import dataclass
+from typing import Generic, TypeVar
+
+T = TypeVar("T")
+E = TypeVar("E")
+
+
+@dataclass(frozen=True)
+class Ok(Generic[T]):
+    value: T
+    ok: bool = True
+
+
+@dataclass(frozen=True)
+class Err(Generic[E]):
+    error: E
+    ok: bool = False
+
+
+Result = Ok[T] | Err[E]
+
+
+@dataclass(frozen=True)
+class User:
+    email: str
+    username: str
+
+
+@dataclass(frozen=True)
+class ValidationError:
+    field: str
+    message: str
+
+
+def register_user(email: str, username: str) -> Result[User, ValidationError]:
+    if "@" not in email:
+        return Err(ValidationError(field="email", message="Invalid email address"))
+    if len(username) < 3:
+        return Err(ValidationError(field="username", message="Username too short"))
+    return Ok(User(email=email, username=username))
+
+
+# Usage — caller is forced to inspect .ok before using the value
+result = register_user("alice@example.com", "al")
+match result:
+    case Ok(value=user):
+        print(f"Registered: {user.username}")
+    case Err(error=err):
+        print(f"Validation failed on '{err.field}': {err.message}")
+```
+
+**What to notice:**
+- The return type `Result[User, ValidationError]` documents both outcomes in the function signature — no hidden exception contract.
+- `Ok` and `Err` are plain frozen dataclasses; no framework is needed, and they compose naturally with `match`, `if result.ok`, or unpacking.
+- Callers cannot accidentally treat a failure as a success — they must inspect the result before accessing `value`.

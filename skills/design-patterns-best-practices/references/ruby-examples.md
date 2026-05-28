@@ -210,3 +210,713 @@ end
 - `UserService` depends on duck-typed listeners — it has no knowledge of `Logger` or `WelcomeEmailSender`.
 - New reactions to user registration are added by writing a new listener and calling `subscribe`; `UserService` is not touched.
 - The event object carries all the data listeners need, keeping the notification call-site clean.
+
+---
+
+## Command
+
+Encapsulate a request as an object so that operations can be queued, logged, or undone without the sender knowing the implementation details.
+
+```ruby
+class BoldCommand
+  def initialize(editor)
+    @editor = editor
+    @previous = nil
+  end
+
+  def execute
+    @previous = @editor.selection
+    @editor.wrap(@previous, "<b>", "</b>")
+  end
+
+  def undo
+    @editor.restore(@previous)
+  end
+end
+
+class ItalicCommand
+  def initialize(editor)
+    @editor = editor
+    @previous = nil
+  end
+
+  def execute
+    @previous = @editor.selection
+    @editor.wrap(@previous, "<i>", "</i>")
+  end
+
+  def undo
+    @editor.restore(@previous)
+  end
+end
+
+class TextEditor
+  attr_reader :selection
+
+  def initialize(text)
+    @text = text
+    @selection = text
+    @history = []
+  end
+
+  def wrap(text, open, close) = @text = @text.sub(text, "#{open}#{text}#{close}")
+  def restore(text)           = @text = text
+  def run(command)
+    command.execute
+    @history << command
+  end
+  def undo = @history.pop&.undo
+  def to_s = @text
+end
+```
+
+**What to notice:**
+- Each command object captures everything needed to execute and reverse the action — sender and executor are fully decoupled.
+- The `history` stack in `TextEditor` knows nothing about what the commands do; undo is free.
+- New operations (e.g., `UnderlineCommand`) are additive — the editor and history mechanism are untouched.
+
+---
+
+## Template Method
+
+Define the skeleton of an algorithm in a base class and let subclasses fill in the variable steps without changing the overall structure.
+
+```ruby
+class ReportGenerator
+  def generate
+    data = gather_data
+    formatted = format_data(data)
+    output(formatted)
+  end
+
+  private
+
+  def gather_data
+    { title: "Q1 Sales", rows: [[1, "Widget", 100], [2, "Gadget", 200]] }
+  end
+
+  def format_data(_data)
+    raise NotImplementedError, "#{self.class} must implement format_data"
+  end
+
+  def output(content)
+    puts content
+  end
+end
+
+class CsvReportGenerator < ReportGenerator
+  private
+
+  def format_data(data)
+    lines = [data[:title]]
+    data[:rows].each { |row| lines << row.join(",") }
+    lines.join("\n")
+  end
+end
+
+class PdfReportGenerator < ReportGenerator
+  private
+
+  def format_data(data)
+    "[PDF] #{data[:title]}: #{data[:rows].map { |r| r.join(" | ") }.join("; ")}"
+  end
+end
+```
+
+**What to notice:**
+- The `generate` method is the invariant skeleton — subclasses never override it, only the steps that vary.
+- The base class documents the algorithm's shape; reading it tells you exactly what every report generator does.
+- Adding a new output format (e.g., `HtmlReportGenerator`) is a single-class additive change.
+
+---
+
+## Chain of Responsibility
+
+Pass a request along a chain of handlers; each handler decides to process it or forward it to the next one.
+
+```ruby
+class AuthMiddleware
+  def initialize(next_handler = nil)
+    @next = next_handler
+  end
+
+  def call(request)
+    return { status: 401, body: "Unauthorized" } unless request[:token] == "valid-token"
+
+    @next&.call(request) || { status: 200, body: "OK" }
+  end
+end
+
+class LoggingMiddleware
+  def initialize(next_handler = nil)
+    @next = next_handler
+  end
+
+  def call(request)
+    puts "[LOG] #{request[:method]} #{request[:path]}"
+    @next&.call(request) || { status: 200, body: "OK" }
+  end
+end
+
+class Handler
+  def call(_request)
+    { status: 200, body: "Hello, world!" }
+  end
+end
+
+# Build the chain: Auth → Logging → Handler
+chain = AuthMiddleware.new(LoggingMiddleware.new(Handler.new))
+puts chain.call({ method: "GET", path: "/home", token: "valid-token" }).inspect
+```
+
+**What to notice:**
+- Each middleware knows only about its own concern and the next handler — the chain is assembled at construction time.
+- Adding or reordering middleware is a one-line change at the composition site; no handler is modified.
+- The safe-navigation operator (`&.call`) means a handler at the end of the chain can terminate without a special null object.
+
+---
+
+## Iterator
+
+Provide a sequential interface to a collection's elements without exposing its internal structure.
+
+```ruby
+class NumberRange
+  include Enumerable
+
+  def initialize(start, stop, step: 1)
+    @start = start
+    @stop  = stop
+    @step  = step
+  end
+
+  def each
+    current = @start
+    while current <= @stop
+      yield current
+      current += @step
+    end
+  end
+end
+
+range = NumberRange.new(1, 10, step: 2)
+puts range.to_a.inspect          # [1, 3, 5, 7, 9]
+puts range.select(&:odd?).inspect
+puts range.sum
+```
+
+**What to notice:**
+- Implementing `each` and including `Enumerable` gives the class the full Ruby collection API for free (`map`, `select`, `sum`, `min`, `sort`, …).
+- Callers never know whether the sequence is array-backed, lazily computed, or read from a database.
+- The `step` parameter shows how a custom iterator can expose iteration policies the standard `Range` class does not.
+
+---
+
+## Mediator
+
+Centralize inter-object communication so that objects talk to a mediator instead of referencing each other directly.
+
+```ruby
+class ChatRoom
+  def initialize
+    @users = {}
+  end
+
+  def join(user)
+    @users[user.name] = user
+    broadcast("[#{user.name} joined]", except: user)
+  end
+
+  def send_message(from:, to: nil, text:)
+    if to
+      @users[to]&.receive("[DM from #{from.name}] #{text}")
+    else
+      broadcast("[#{from.name}] #{text}", except: from)
+    end
+  end
+
+  private
+
+  def broadcast(message, except:)
+    @users.each_value { |u| u.receive(message) unless u == except }
+  end
+end
+
+class User
+  attr_reader :name
+
+  def initialize(name, room)
+    @name = name
+    @room = room
+    @room.join(self)
+  end
+
+  def say(text, to: nil) = @room.send_message(from: self, to: to, text: text)
+  def receive(message)   = puts "#{@name} received: #{message}"
+end
+
+room  = ChatRoom.new
+alice = User.new("Alice", room)
+bob   = User.new("Bob",   room)
+alice.say("Hello, everyone!")
+alice.say("Hey Bob", to: "Bob")
+```
+
+**What to notice:**
+- `User` objects never hold references to each other — all routing logic lives in `ChatRoom`.
+- Adding a new user or a new message type only touches the mediator, not any participant.
+- The mediator trades many peer-to-peer edges for a single hub, which simplifies the object graph but centralizes complexity.
+
+---
+
+## Builder
+
+Construct a complex object step by step using a fluent interface; keep construction logic out of the consumer.
+
+```ruby
+class QueryBuilder
+  def initialize(table)
+    @table      = table
+    @selections = ["*"]
+    @conditions = []
+    @limit_val  = nil
+  end
+
+  def select(*columns)
+    @selections = columns
+    self
+  end
+
+  def where(condition)
+    @conditions << condition
+    self
+  end
+
+  def limit(n)
+    @limit_val = n
+    self
+  end
+
+  def build
+    sql = "SELECT #{@selections.join(", ")} FROM #{@table}"
+    sql += " WHERE #{@conditions.join(" AND ")}" unless @conditions.empty?
+    sql += " LIMIT #{@limit_val}" if @limit_val
+    sql
+  end
+end
+
+query = QueryBuilder.new("users")
+  .select("id", "email")
+  .where("active = true")
+  .where("age > 18")
+  .limit(10)
+  .build
+
+puts query
+# SELECT id, email FROM users WHERE active = true AND age > 18 LIMIT 10
+```
+
+**What to notice:**
+- Each chainable method returns `self`, making the construction sequence read like a sentence.
+- `build` is the only method that produces output — intermediate state accumulates silently inside the builder.
+- The consumer never constructs a partially-valid query string; the builder enforces a complete representation at `build` time.
+
+---
+
+## Abstract Factory
+
+Create families of related objects without naming their concrete classes; swap the entire family by swapping the factory.
+
+```ruby
+class WindowsButton
+  def render = puts "[Windows] Rendering button"
+end
+
+class WindowsCheckbox
+  def render = puts "[Windows] Rendering checkbox"
+end
+
+class MacButton
+  def render = puts "[Mac] Rendering button"
+end
+
+class MacCheckbox
+  def render = puts "[Mac] Rendering checkbox"
+end
+
+class WindowsFactory
+  def create_button   = WindowsButton.new
+  def create_checkbox = WindowsCheckbox.new
+end
+
+class MacFactory
+  def create_button   = MacButton.new
+  def create_checkbox = MacCheckbox.new
+end
+
+class Application
+  def initialize(factory)
+    @button   = factory.create_button
+    @checkbox = factory.create_checkbox
+  end
+
+  def render
+    @button.render
+    @checkbox.render
+  end
+end
+
+factory = ENV["OS"] == "mac" ? MacFactory.new : WindowsFactory.new
+Application.new(factory).render
+```
+
+**What to notice:**
+- `Application` names no concrete widget class — the factory is the only seam between platform-agnostic and platform-specific code.
+- Switching platforms is a single-line change at the composition root.
+- Adding a new widget (e.g., `create_text_field`) requires updating each factory, which keeps families consistent by construction.
+
+---
+
+## Singleton
+
+Ensure a class has exactly one instance and provide a global access point to it.
+
+```ruby
+require "singleton"
+
+class AppLogger
+  include Singleton
+
+  def initialize
+    @log = []
+  end
+
+  def info(message)
+    @log << "[INFO] #{message}"
+    puts @log.last
+  end
+
+  def entries = @log.dup
+end
+
+AppLogger.instance.info("Application started")
+AppLogger.instance.info("User logged in")
+puts AppLogger.instance.entries.inspect
+```
+
+> **Anti-pattern warning:** Singleton is widely considered an anti-pattern. It introduces global mutable state, creates hidden coupling between callers, and makes unit testing hard (tests share the same instance and cannot isolate state). Prefer dependency injection — pass the logger as a constructor argument — so each consumer's dependency is explicit and replaceable in tests.
+
+**What to notice:**
+- Ruby's `Singleton` module privatizes `new` and `allocate` and memoizes `instance` in a thread-safe way.
+- The convenience of a global access point (`AppLogger.instance`) is also its danger — any code anywhere can mutate shared state.
+- When you feel the pull toward Singleton, ask whether dependency injection with a shared instance at the composition root solves the same problem without the global coupling.
+
+---
+
+## Proxy
+
+Provide a surrogate that controls access to another object — deferring its creation until it is actually needed.
+
+```ruby
+class RealImage
+  def initialize(path)
+    @path = path
+    puts "[RealImage] Loading #{@path} from disk…"
+    @data = "…binary data…"
+  end
+
+  def display = puts "[RealImage] Displaying #{@path}"
+end
+
+class ImageProxy
+  def initialize(path)
+    @path  = path
+    @image = nil
+  end
+
+  def display
+    @image ||= RealImage.new(@path)
+    @image.display
+  end
+end
+
+# The real image is not loaded until display is first called.
+proxy = ImageProxy.new("photo.jpg")
+puts "Proxy created — no disk I/O yet"
+proxy.display   # loads on first call
+proxy.display   # uses cached instance
+```
+
+**What to notice:**
+- `ImageProxy` and `RealImage` share the same public interface (`display`), so callers cannot tell which they hold.
+- `@image ||=` is idiomatic Ruby for lazy memoization — one line replaces an explicit null-object guard.
+- The proxy pattern is also used for access control, logging, and remote object stubs; the lazy-loading shape here is just one common application.
+
+---
+
+## Facade
+
+Provide a single, simplified interface to a complex subsystem so callers are shielded from its inner workings.
+
+```ruby
+class Amplifier
+  def on  = puts "Amplifier on"
+  def off = puts "Amplifier off"
+  def set_volume(level) = puts "Volume → #{level}"
+end
+
+class DVDPlayer
+  def on  = puts "DVD player on"
+  def off = puts "DVD player off"
+  def play(movie) = puts "Playing '#{movie}'"
+end
+
+class Projector
+  def on  = puts "Projector on"
+  def off = puts "Projector off"
+  def wide_screen_mode = puts "Projector: wide-screen mode"
+end
+
+class HomeTheaterFacade
+  def initialize
+    @amp       = Amplifier.new
+    @dvd       = DVDPlayer.new
+    @projector = Projector.new
+  end
+
+  def watch_movie(movie)
+    puts "--- Get ready to watch a movie ---"
+    @projector.on
+    @projector.wide_screen_mode
+    @amp.on
+    @amp.set_volume(10)
+    @dvd.on
+    @dvd.play(movie)
+  end
+
+  def end_movie
+    puts "--- Shutting down ---"
+    @dvd.off
+    @amp.off
+    @projector.off
+  end
+end
+
+theater = HomeTheaterFacade.new
+theater.watch_movie("Inception")
+theater.end_movie
+```
+
+**What to notice:**
+- The facade owns the orchestration sequence — callers are not coupled to the order or presence of subsystem components.
+- Each subsystem class remains independently testable and reusable; the facade adds no business logic of its own.
+- When the subsystem grows (e.g., adding `StreamingDevice`), only the facade changes — no caller is affected.
+
+---
+
+## Bridge
+
+Decouple an abstraction from its implementation so that both can vary independently along separate axes.
+
+```ruby
+class SvgDrawer
+  def draw_circle(x, y, radius)
+    puts "<circle cx='#{x}' cy='#{y}' r='#{radius}'/>"
+  end
+
+  def draw_square(x, y, side)
+    puts "<rect x='#{x}' y='#{y}' width='#{side}' height='#{side}'/>"
+  end
+end
+
+class CanvasDrawer
+  def draw_circle(x, y, radius)
+    puts "ctx.arc(#{x}, #{y}, #{radius}, 0, 2*Math.PI)"
+  end
+
+  def draw_square(x, y, side)
+    puts "ctx.fillRect(#{x}, #{y}, #{side}, #{side})"
+  end
+end
+
+class Circle
+  def initialize(x, y, radius, drawer)
+    @x = x; @y = y; @radius = radius; @drawer = drawer
+  end
+
+  def draw = @drawer.draw_circle(@x, @y, @radius)
+end
+
+class Square
+  def initialize(x, y, side, drawer)
+    @x = x; @y = y; @side = side; @drawer = drawer
+  end
+
+  def draw = @drawer.draw_square(@x, @y, @side)
+end
+
+svg    = SvgDrawer.new
+canvas = CanvasDrawer.new
+
+Circle.new(50, 50, 30, svg).draw
+Square.new(10, 10, 40, canvas).draw
+```
+
+**What to notice:**
+- Shape (what to draw) and DrawingAPI (how to draw) vary independently — adding a new shape does not touch any drawer, and vice versa.
+- The Bridge pattern avoids the M×N subclass explosion that inheritance would create (2 shapes × 2 renderers = 4 classes instead of 6).
+- In Ruby the drawer is a plain duck-typed collaborator; no abstract base class is required.
+
+---
+
+## Flyweight
+
+Share common state between many fine-grained objects to reduce memory when large numbers of similar objects are needed.
+
+```ruby
+Font = Data.define(:family, :size)
+
+class CharacterFactory
+  def initialize
+    @cache = {}
+  end
+
+  def font_for(family, size)
+    @cache[[family, size]] ||= Font.new(family: family, size: size)
+  end
+end
+
+class Character
+  attr_reader :glyph
+
+  def initialize(glyph, font)
+    @glyph = glyph
+    @font  = font
+  end
+
+  def render(x, y)
+    puts "'#{@glyph}' at (#{x},#{y}) — #{@font.family} #{@font.size}pt [font_id: #{@font.object_id}]"
+  end
+end
+
+factory = CharacterFactory.new
+
+chars = [
+  Character.new("H", factory.font_for("Arial", 12)),
+  Character.new("e", factory.font_for("Arial", 12)),
+  Character.new("l", factory.font_for("Arial", 12)),
+  Character.new("!", factory.font_for("Arial", 14)),
+]
+
+chars.each_with_index { |c, i| c.render(i * 10, 0) }
+
+puts "Unique Font objects: #{factory.instance_variable_get(:@cache).size}"
+```
+
+**What to notice:**
+- All characters sharing the same font family and size point to the same `Font` object — the `object_id` lines confirm this.
+- The factory's `Hash` cache (`||=`) is all the machinery needed; no complex pooling infrastructure is required.
+- `Data.define` creates an immutable value object, which is safe to share because shared objects must not be mutated.
+
+---
+
+## Composite
+
+Treat individual objects and compositions of objects uniformly through a shared interface — no explicit abstract class required in Ruby.
+
+```ruby
+class File
+  def initialize(name, size_bytes)
+    @name = name
+    @size = size_bytes
+  end
+
+  def size = @size
+
+  def display(indent = 0)
+    puts "#{"  " * indent}📄 #{@name} (#{@size} B)"
+  end
+end
+
+class Directory
+  def initialize(name)
+    @name     = name
+    @children = []
+  end
+
+  def add(child)
+    @children << child
+    self
+  end
+
+  def size = @children.sum(&:size)
+
+  def display(indent = 0)
+    puts "#{"  " * indent}📁 #{@name}/ (#{size} B)"
+    @children.each { |c| c.display(indent + 1) }
+  end
+end
+
+root = Directory.new("project")
+  .add(File.new("README.md", 1200))
+  .add(
+    Directory.new("src")
+      .add(File.new("main.rb", 3400))
+      .add(File.new("helper.rb", 800))
+  )
+
+root.display
+puts "Total: #{root.size} B"
+```
+
+**What to notice:**
+- `File` and `Directory` both respond to `size` and `display` — callers never check which they have.
+- `Directory#size` delegates recursively to its children; the leaf and composite cases collapse into a single `sum` call.
+- Ruby's duck typing means no `Component` base class is needed — the shared interface is purely behavioral.
+
+---
+
+## Result Pattern
+
+Return a typed Success or Failure value instead of raising exceptions, making error handling explicit in the call chain.
+
+```ruby
+Result = Data.define(:success, :value, :error) do
+  def self.ok(value)      = new(success: true,  value: value, error: nil)
+  def self.fail(message)  = new(success: false, value: nil,   error: message)
+  def success?            = success
+end
+
+class UserRegistration
+  MIN_PASSWORD_LENGTH = 8
+
+  def call(email:, password:)
+    return Result.fail("Email is blank")    if email.to_s.strip.empty?
+    return Result.fail("Email is invalid")  unless email.include?("@")
+    return Result.fail("Password too short") if password.length < MIN_PASSWORD_LENGTH
+
+    user = { id: rand(1000), email: email }
+    Result.ok(user)
+  end
+end
+
+service = UserRegistration.new
+
+[
+  { email: "alice@example.com", password: "s3cur3pass" },
+  { email: "bad-email",         password: "s3cur3pass" },
+  { email: "alice@example.com", password: "short"      },
+].each do |params|
+  result = service.call(**params)
+  if result.success?
+    puts "Registered: #{result.value}"
+  else
+    puts "Failed: #{result.error}"
+  end
+end
+```
+
+**What to notice:**
+- The caller is forced to inspect `success?` before accessing `value` — there is no way to silently ignore a failure.
+- `Data.define` with class-level factory methods (`ok`, `fail`) gives a clean, immutable value object with minimal boilerplate.
+- This pattern composes well with pipelines: each step returns a `Result` and downstream steps short-circuit on `failure?` — no exception unwinding needed.
