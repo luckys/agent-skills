@@ -1059,3 +1059,415 @@ if ($result->isSuccess()) {
 - Callers are forced to check `isSuccess()` before accessing the value — the error path cannot be silently ignored.
 - No exception crosses a method boundary; failures are first-class return values, making them easy to test and compose.
 - Named constructors (`success` / `failure`) keep the distinction clear at the call site without exposing the constructor's boolean flag.
+
+---
+
+## Enterprise Application Patterns
+
+### Transaction Script
+
+**Intent:** Organizes business logic for a single use case as a procedure that calls the database directly.
+
+```php
+final class TransferFunds
+{
+    public function __construct(private readonly \PDO $db) {}
+
+    public function execute(int $fromId, int $toId, int $amountCents): void
+    {
+        $this->db->beginTransaction();
+        try {
+            $stmt = $this->db->prepare('SELECT balance FROM accounts WHERE id = ? FOR UPDATE');
+            $stmt->execute([$fromId]);
+            $from = $stmt->fetch();
+
+            if ($from['balance'] < $amountCents) {
+                throw new \DomainException('Insufficient funds');
+            }
+
+            $this->db->prepare('UPDATE accounts SET balance = balance - ? WHERE id = ?')
+                ->execute([$amountCents, $fromId]);
+            $this->db->prepare('UPDATE accounts SET balance = balance + ? WHERE id = ?')
+                ->execute([$amountCents, $toId]);
+
+            $this->db->commit();
+        } catch (\Throwable $e) {
+            $this->db->rollBack();
+            throw $e;
+        }
+    }
+}
+```
+
+**Key point:** All logic for one use case lives in one method — appropriate for simple workflows where domain objects would add indirection without value.
+
+---
+
+### Service Layer
+
+**Intent:** Defines application operations that coordinate domain objects, repositories, and infrastructure without leaking domain logic into controllers.
+
+```php
+final class OrderService
+{
+    public function __construct(
+        private readonly OrderRepository $orders,
+        private readonly InventoryRepository $inventory,
+        private readonly EventDispatcher $events,
+    ) {}
+
+    public function placeOrder(int $customerId, array $lineItems): Order
+    {
+        foreach ($lineItems as $item) {
+            $this->inventory->reserve($item['sku'], $item['qty']);
+        }
+
+        $order = Order::create(customerId: $customerId, lines: $lineItems);
+        $this->orders->save($order);
+        $this->events->dispatch(new OrderPlaced($order->id()));
+
+        return $order;
+    }
+}
+```
+
+**Key point:** The service layer is the only entry point for application operations — controllers stay thin and domain objects stay free of infrastructure concerns.
+
+---
+
+### Data Mapper
+
+**Intent:** Transfers data between in-memory domain objects and the database while keeping domain objects unaware of persistence.
+
+```php
+final class User
+{
+    public function __construct(
+        public readonly int $id,
+        public readonly string $name,
+        public readonly string $email,
+    ) {}
+}
+
+final class UserMapper
+{
+    public function __construct(private readonly \PDO $db) {}
+
+    public function findById(int $id): ?User
+    {
+        $stmt = $this->db->prepare('SELECT id, name, email FROM users WHERE id = ?');
+        $stmt->execute([$id]);
+        $row = $stmt->fetch(\PDO::FETCH_ASSOC);
+
+        return $row ? new User(id: $row['id'], name: $row['name'], email: $row['email']) : null;
+    }
+
+    public function insert(User $user): void
+    {
+        $this->db->prepare('INSERT INTO users (name, email) VALUES (?, ?)')
+            ->execute([$user->name, $user->email]);
+    }
+}
+```
+
+**Key point:** `User` contains zero SQL — all mapping logic is isolated in `UserMapper`, so the domain object can be tested without a database.
+
+---
+
+### Unit of Work
+
+**Intent:** Tracks which domain objects have been created, changed, or removed during a request and writes all changes in a single transaction at the end.
+
+```php
+final class UnitOfWork
+{
+    private array $new     = [];
+    private array $dirty   = [];
+    private array $removed = [];
+
+    public function __construct(private readonly \PDO $db) {}
+
+    public function registerNew(object $entity): void    { $this->new[]     = $entity; }
+    public function registerDirty(object $entity): void  { $this->dirty[]   = $entity; }
+    public function registerRemoved(object $entity): void { $this->removed[] = $entity; }
+
+    public function commit(UserMapper $mapper): void
+    {
+        $this->db->beginTransaction();
+        try {
+            foreach ($this->new     as $e) { $mapper->insert($e); }
+            foreach ($this->dirty   as $e) { $mapper->update($e); }
+            foreach ($this->removed as $e) { $mapper->delete($e); }
+            $this->db->commit();
+        } catch (\Throwable $e) {
+            $this->db->rollBack();
+            throw $e;
+        }
+        $this->new = $this->dirty = $this->removed = [];
+    }
+}
+```
+
+**Key point:** Business code mutates objects freely during a request and calls `commit()` once — the Unit of Work batches all writes into one atomic transaction.
+
+---
+
+### Data Transfer Object (DTO)
+
+**Intent:** Carries data across layer boundaries as a plain, behavior-free structure.
+
+```php
+final readonly class CreateUserRequest
+{
+    public function __construct(
+        public string $name,
+        public string $email,
+        public string $role,
+    ) {}
+}
+
+final readonly class UserResponse
+{
+    public function __construct(
+        public int    $id,
+        public string $name,
+        public string $email,
+    ) {}
+}
+
+// Controller → Service
+$request = new CreateUserRequest(name: 'Alice', email: 'alice@example.com', role: 'editor');
+$service->createUser($request);
+
+// Service → Controller
+return new UserResponse(id: 42, name: 'Alice', email: 'alice@example.com');
+```
+
+**Key point:** A `readonly` DTO is an immutable data envelope — it carries no validation, no business rules, and no dependencies, making it safe to serialize and pass across any boundary.
+
+---
+
+### Value Object (Money)
+
+**Intent:** Represents a monetary amount as an immutable object with value semantics and domain-aware arithmetic.
+
+```php
+final readonly class Money
+{
+    public function __construct(
+        public int    $amount,   // minor units (cents)
+        public string $currency, // ISO 4217
+    ) {}
+
+    public function add(Money $other): self
+    {
+        $this->assertSameCurrency($other);
+        return new self($this->amount + $other->amount, $this->currency);
+    }
+
+    public function multiply(float $factor): self
+    {
+        return new self((int) round($this->amount * $factor), $this->currency);
+    }
+
+    public function equals(Money $other): bool
+    {
+        return $this->amount === $other->amount && $this->currency === $other->currency;
+    }
+
+    private function assertSameCurrency(Money $other): void
+    {
+        if ($this->currency !== $other->currency) {
+            throw new \DomainException("Cannot mix {$this->currency} and {$other->currency}");
+        }
+    }
+}
+
+$price = new Money(1000, 'USD');
+$tax   = $price->multiply(0.08);
+$total = $price->add($tax);   // Money(1080, 'USD')
+```
+
+**Key point:** Immutability and same-currency guards make `Money` safe to pass anywhere — arithmetic always returns a new instance, so the original is never mutated by accident.
+
+---
+
+### Special Case
+
+**Intent:** Replaces null checks by providing a subclass that represents a missing or default entity with safe, do-nothing behavior.
+
+```php
+abstract class Customer
+{
+    abstract public function getName(): string;
+    abstract public function getDiscount(): float;
+    abstract public function isGuest(): bool;
+}
+
+final class RegisteredCustomer extends Customer
+{
+    public function __construct(private readonly string $name, private readonly float $discount) {}
+
+    public function getName(): string    { return $this->name; }
+    public function getDiscount(): float { return $this->discount; }
+    public function isGuest(): bool      { return false; }
+}
+
+final class GuestCustomer extends Customer   // Special Case
+{
+    public function getName(): string    { return 'Guest'; }
+    public function getDiscount(): float { return 0.0; }
+    public function isGuest(): bool      { return true; }
+}
+
+// Usage — no null checks anywhere
+function greet(Customer $customer): string
+{
+    return "Hello, {$customer->getName()}! Your discount: {$customer->getDiscount()}%";
+}
+```
+
+**Key point:** `GuestCustomer` eliminates `if ($customer === null)` guards throughout the codebase by giving the "missing" case real, predictable behavior.
+
+---
+
+### Gateway
+
+**Intent:** Wraps an external API or service behind a clean, domain-vocabulary interface so the rest of the application never depends on third-party details.
+
+```php
+interface CurrencyGateway
+{
+    /** Returns the exchange rate from $from to $to. */
+    public function getRate(string $from, string $to): float;
+}
+
+final class HttpCurrencyGateway implements CurrencyGateway
+{
+    public function __construct(
+        private readonly string $baseUrl,
+        private readonly string $apiKey,
+    ) {}
+
+    public function getRate(string $from, string $to): float
+    {
+        $url      = "{$this->baseUrl}/rates?base={$from}&symbols={$to}&apikey={$this->apiKey}";
+        $response = json_decode(file_get_contents($url), true);
+
+        return (float) $response['rates'][$to];
+    }
+}
+
+final class StubCurrencyGateway implements CurrencyGateway
+{
+    public function getRate(string $from, string $to): float { return 1.08; }
+}
+```
+
+**Key point:** Domain code depends only on `CurrencyGateway` — swapping the HTTP provider for a stub in tests, or migrating to a different API, requires changing one class.
+
+---
+
+### Query Object
+
+**Intent:** Encapsulates filter criteria for a collection query as a first-class object, keeping query-building logic out of repositories and controllers.
+
+```php
+final class ProductQuery
+{
+    private ?string $category = null;
+    private ?int    $maxPrice = null;
+    private bool    $inStock  = false;
+
+    public function inCategory(string $category): static
+    {
+        $clone           = clone $this;
+        $clone->category = $category;
+        return $clone;
+    }
+
+    public function cheaperThan(int $cents): static
+    {
+        $clone           = clone $this;
+        $clone->maxPrice = $cents;
+        return $clone;
+    }
+
+    public function onlyInStock(): static
+    {
+        $clone          = clone $this;
+        $clone->inStock = true;
+        return $clone;
+    }
+
+    public function toSql(): array   // returns [sql, bindings]
+    {
+        $where    = ['1=1'];
+        $bindings = [];
+
+        if ($this->category !== null) { $where[] = 'category = ?'; $bindings[] = $this->category; }
+        if ($this->maxPrice  !== null) { $where[] = 'price <= ?';   $bindings[] = $this->maxPrice; }
+        if ($this->inStock)            { $where[] = 'stock > 0'; }
+
+        return ['SELECT * FROM products WHERE ' . implode(' AND ', $where), $bindings];
+    }
+}
+
+// Usage
+$query = (new ProductQuery())->inCategory('books')->cheaperThan(2000)->onlyInStock();
+[$sql, $bindings] = $query->toSql();
+```
+
+**Key point:** Each filter is an immutable clone operation, making Query Objects composable, testable, and safe to reuse without risking cross-request state leakage.
+
+---
+
+### Layer Supertype
+
+**Intent:** Provides a base class for an entire layer that centralizes shared infrastructure — IDs, timestamps, equality — so concrete classes inherit it without repeating it.
+
+```php
+abstract class Entity
+{
+    private readonly string $id;
+    private readonly \DateTimeImmutable $createdAt;
+    private \DateTimeImmutable $updatedAt;
+
+    public function __construct()
+    {
+        $this->id        = bin2hex(random_bytes(16));
+        $this->createdAt = new \DateTimeImmutable();
+        $this->updatedAt = $this->createdAt;
+    }
+
+    public function id(): string                        { return $this->id; }
+    public function createdAt(): \DateTimeImmutable      { return $this->createdAt; }
+    public function updatedAt(): \DateTimeImmutable      { return $this->updatedAt; }
+
+    protected function touch(): void
+    {
+        $this->updatedAt = new \DateTimeImmutable();
+    }
+
+    public function equals(self $other): bool
+    {
+        return $this->id === $other->id;
+    }
+}
+
+final class Product extends Entity
+{
+    public function __construct(private string $name, private int $priceCents)
+    {
+        parent::__construct();
+    }
+
+    public function rename(string $name): void
+    {
+        $this->name = $name;
+        $this->touch();
+    }
+}
+```
+
+**Key point:** Identity generation, timestamp management, and equality by ID are written once in `Entity` — every domain class that extends it gets this infrastructure for free without any duplication.

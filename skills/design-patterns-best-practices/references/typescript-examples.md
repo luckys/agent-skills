@@ -920,3 +920,356 @@ if (result.ok) {
 - TypeScript narrows the union after the `ok` check — `result.value` is only accessible in the `true` branch, eliminating accidental access to an error value.
 - Callers are forced by the type system to handle both paths; there is no way to ignore a failure silently.
 - The pattern composes: a function can accept a `Result` and return a `Result`, building pipelines without try/catch nesting.
+
+---
+
+## Enterprise Application Patterns
+
+### Transaction Script
+
+**Intent:** Organizes business logic as a single procedural function that handles one use case end-to-end, including direct DB calls.
+
+```typescript
+interface DbConnection {
+  query<T>(sql: string, params: unknown[]): Promise<T[]>
+  execute(sql: string, params: unknown[]): Promise<void>
+}
+
+async function transferFunds(
+  db: DbConnection,
+  fromAccountId: string,
+  toAccountId: string,
+  amountInCents: number,
+): Promise<void> {
+  const [from] = await db.query<{ balance: number }>(
+    'SELECT balance FROM accounts WHERE id = ?', [fromAccountId]
+  )
+  if (!from || from.balance < amountInCents) {
+    throw new Error('Insufficient funds')
+  }
+  await db.execute(
+    'UPDATE accounts SET balance = balance - ? WHERE id = ?',
+    [amountInCents, fromAccountId]
+  )
+  await db.execute(
+    'UPDATE accounts SET balance = balance + ? WHERE id = ?',
+    [amountInCents, toAccountId]
+  )
+}
+```
+
+**Key point:** All logic for one use case lives in one place — simple to read and trace, but grows unwieldy when use cases share business rules across multiple scripts.
+
+---
+
+### Service Layer
+
+**Intent:** A class that coordinates domain objects and repositories to expose coarse-grained application operations to callers.
+
+```typescript
+interface AccountRepository {
+  findById(id: string): Promise<Account | null>
+  save(account: Account): Promise<void>
+}
+
+class Account {
+  constructor(public id: string, private balance: number) {}
+  debit(amount: number): void {
+    if (amount > this.balance) throw new Error('Insufficient funds')
+    this.balance -= amount
+  }
+  credit(amount: number): void { this.balance += amount }
+}
+
+class TransferService {
+  constructor(private readonly accounts: AccountRepository) {}
+
+  async transfer(fromId: string, toId: string, amount: number): Promise<void> {
+    const [from, to] = await Promise.all([
+      this.accounts.findById(fromId),
+      this.accounts.findById(toId),
+    ])
+    if (!from || !to) throw new Error('Account not found')
+    from.debit(amount)
+    to.credit(amount)
+    await Promise.all([this.accounts.save(from), this.accounts.save(to)])
+  }
+}
+```
+
+**Key point:** The service holds no business rules itself — it delegates to domain objects and repositories, acting as the transaction boundary and orchestrator.
+
+---
+
+### Data Mapper
+
+**Intent:** A class that moves data between domain objects and database rows, keeping SQL entirely out of the domain model.
+
+```typescript
+interface UserRow { id: string; full_name: string; email_address: string }
+
+class User {
+  constructor(
+    readonly id: string,
+    readonly fullName: string,
+    readonly email: string,
+  ) {}
+}
+
+class UserMapper {
+  toDomain(row: UserRow): User {
+    return new User(row.id, row.full_name, row.email_address)
+  }
+
+  toPersistence(user: User): UserRow {
+    return { id: user.id, full_name: user.fullName, email_address: user.email }
+  }
+}
+
+// Usage (repository layer)
+// const row = await db.query('SELECT * FROM users WHERE id = ?', [id])
+// return mapper.toDomain(row)
+```
+
+**Key point:** The domain object `User` knows nothing about column names or persistence — all schema-to-model translation is isolated in one mapper class.
+
+---
+
+### Unit of Work
+
+**Intent:** Tracks objects registered as new, dirty, or removed during a business transaction and flushes all changes in a single atomic write.
+
+```typescript
+class UnitOfWork {
+  private readonly newEntities: object[] = []
+  private readonly dirtyEntities: object[] = []
+  private readonly removedEntities: object[] = []
+
+  registerNew(entity: object): void    { this.newEntities.push(entity) }
+  registerDirty(entity: object): void  { this.dirtyEntities.push(entity) }
+  registerRemoved(entity: object): void { this.removedEntities.push(entity) }
+
+  async commit(db: { insert: Function; update: Function; delete: Function }): Promise<void> {
+    for (const e of this.newEntities)     await db.insert(e)
+    for (const e of this.dirtyEntities)   await db.update(e)
+    for (const e of this.removedEntities) await db.delete(e)
+    this.newEntities.length = 0
+    this.dirtyEntities.length = 0
+    this.removedEntities.length = 0
+  }
+}
+```
+
+**Key point:** Callers accumulate changes throughout a use case and call `commit` once — preventing partial writes and avoiding redundant round-trips to the database.
+
+---
+
+### Data Transfer Object (DTO)
+
+**Intent:** A plain, immutable object that carries data across layer boundaries with no behavior.
+
+```typescript
+interface CreateOrderDto {
+  readonly customerId: string
+  readonly lineItems: ReadonlyArray<{ readonly productId: string; readonly quantity: number }>
+  readonly shippingAddressId: string
+}
+
+interface OrderSummaryDto {
+  readonly orderId: string
+  readonly status: string
+  readonly totalInCents: number
+  readonly createdAt: string
+}
+
+// Usage: HTTP layer creates the DTO from request JSON,
+// passes it to the service layer, receives a summary DTO back.
+// No domain objects or database entities cross the boundary.
+```
+
+**Key point:** DTOs are deliberately behavior-free — they prevent domain logic from leaking into serialization code and make layer contracts explicit and type-safe.
+
+---
+
+### Value Object (Money)
+
+**Intent:** An immutable object with value semantics that represents a monetary amount — equality is based on amount and currency, not identity.
+
+```typescript
+class Money {
+  private constructor(
+    readonly amountInCents: number,
+    readonly currency: string,
+  ) {}
+
+  static of(amountInCents: number, currency: string): Money {
+    if (amountInCents < 0) throw new Error('Amount must be non-negative')
+    return new Money(amountInCents, currency)
+  }
+
+  add(other: Money): Money {
+    this.assertSameCurrency(other)
+    return new Money(this.amountInCents + other.amountInCents, this.currency)
+  }
+
+  equals(other: Money): boolean {
+    return this.amountInCents === other.amountInCents && this.currency === other.currency
+  }
+
+  private assertSameCurrency(other: Money): void {
+    if (this.currency !== other.currency) throw new Error('Currency mismatch')
+  }
+}
+
+const price = Money.of(1000, 'USD')
+const tax   = Money.of(210,  'USD')
+const total = price.add(tax) // Money.of(1210, 'USD') — original unchanged
+```
+
+**Key point:** Immutability guarantees that operations return new values rather than mutating shared state, eliminating entire classes of currency-mixing and aliasing bugs.
+
+---
+
+### Special Case
+
+**Intent:** A subclass that represents a null or missing entity with safe default behavior, eliminating null checks throughout calling code.
+
+```typescript
+class Customer {
+  constructor(readonly name: string, readonly discountRate: number) {}
+
+  applyDiscount(priceInCents: number): number {
+    return Math.round(priceInCents * (1 - this.discountRate))
+  }
+}
+
+class GuestCustomer extends Customer {
+  constructor() { super('Guest', 0) }
+
+  applyDiscount(priceInCents: number): number {
+    return priceInCents // no discount for guests
+  }
+}
+
+// Repository returns GuestCustomer when no account is found
+function findCustomer(id: string | null): Customer {
+  if (!id) return new GuestCustomer()
+  // ... db lookup ...
+  return new Customer('Alice', 0.1)
+}
+
+// Caller never checks for null
+const customer = findCustomer(null)
+console.log(customer.applyDiscount(1000)) // 1000
+```
+
+**Key point:** By returning a well-behaved object instead of `null`, callers are freed from defensive null checks — the missing-case behavior is defined once, in one place.
+
+---
+
+### Gateway
+
+**Intent:** A class that wraps an external API or service behind a clean, domain-facing interface, hiding HTTP, auth, and serialization details.
+
+```typescript
+interface ExchangeRate { from: string; to: string; rate: number }
+
+interface CurrencyGateway {
+  getRate(from: string, to: string): Promise<ExchangeRate>
+}
+
+class OpenExchangeGateway implements CurrencyGateway {
+  constructor(
+    private readonly apiKey: string,
+    private readonly http: { get: (url: string) => Promise<{ data: unknown }> },
+  ) {}
+
+  async getRate(from: string, to: string): Promise<ExchangeRate> {
+    const { data } = await this.http.get(
+      `https://openexchangerates.org/api/latest.json?app_id=${this.apiKey}&base=${from}&symbols=${to}`
+    )
+    const rates = (data as { rates: Record<string, number> }).rates
+    return { from, to, rate: rates[to] }
+  }
+}
+
+// Domain code depends only on CurrencyGateway — easily replaced with a stub in tests.
+```
+
+**Key point:** The rest of the application depends on the `CurrencyGateway` interface — switching providers or stubbing in tests requires no changes to domain code.
+
+---
+
+### Query Object
+
+**Intent:** An object that encapsulates filter criteria for a collection query, separating query construction from query execution.
+
+```typescript
+class OrderQuery {
+  private _customerId?: string
+  private _status?: string
+  private _limit?: number
+
+  forCustomer(customerId: string): this { this._customerId = customerId; return this }
+  withStatus(status: string): this      { this._status = status;     return this }
+  limitTo(n: number): this              { this._limit = n;           return this }
+
+  toSql(): { sql: string; params: unknown[] } {
+    const conditions: string[] = []
+    const params: unknown[] = []
+    if (this._customerId) { conditions.push('customer_id = ?'); params.push(this._customerId) }
+    if (this._status)     { conditions.push('status = ?');      params.push(this._status)     }
+    const where = conditions.length ? `WHERE ${conditions.join(' AND ')}` : ''
+    const limit = this._limit ? `LIMIT ${this._limit}` : ''
+    return { sql: `SELECT * FROM orders ${where} ${limit}`.trim(), params }
+  }
+}
+
+// Usage
+const query = new OrderQuery().forCustomer('c-1').withStatus('pending').limitTo(10)
+const { sql, params } = query.toSql()
+// SELECT * FROM orders WHERE customer_id = ? AND status = ? LIMIT 10
+```
+
+**Key point:** Query criteria are built up as a first-class object rather than assembled as raw SQL strings scattered across callers, making queries composable and testable without a database.
+
+---
+
+### Layer Supertype
+
+**Intent:** A base class for an entire layer that holds shared behavior — auto-generated IDs, timestamps, equality — so every entity in the layer inherits it without repetition.
+
+```typescript
+abstract class BaseEntity {
+  readonly id: string
+  readonly createdAt: Date
+  protected updatedAt: Date
+
+  constructor() {
+    this.id        = crypto.randomUUID()
+    this.createdAt = new Date()
+    this.updatedAt = new Date()
+  }
+
+  protected touch(): void {
+    this.updatedAt = new Date()
+  }
+
+  equals(other: BaseEntity): boolean {
+    return this.id === other.id
+  }
+}
+
+class Product extends BaseEntity {
+  constructor(public name: string, public priceInCents: number) {
+    super()
+  }
+
+  updatePrice(newPrice: number): void {
+    this.priceInCents = newPrice
+    this.touch()
+  }
+}
+```
+
+**Key point:** ID generation, timestamp management, and identity comparison are defined once in the supertype — concrete entity classes stay focused on their own domain behavior.

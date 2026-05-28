@@ -904,3 +904,400 @@ switch (new UserRegistration().register("alice@example.com", "secret123")) {
 - `sealed interface` + `record` permits gives exhaustive `switch` expressions — the compiler enforces that both paths are handled.
 - The error is part of the return type, not an invisible side-channel; callers cannot accidentally ignore it.
 - No exception is thrown for expected failure cases (invalid input), reserving exceptions for truly unexpected conditions.
+
+---
+
+## Enterprise Application Patterns
+
+### Transaction Script
+
+**Intent:** Organize business logic as a single procedure that handles one request end-to-end with direct data access.
+
+```java
+public final class TransferScript {
+    private final Connection db;
+
+    public TransferScript(Connection db) { this.db = db; }
+
+    public void transfer(long fromId, long toId, int amountCents) throws SQLException {
+        db.setAutoCommit(false);
+        try {
+            int fromBalance = queryBalance(fromId);
+            if (fromBalance < amountCents) throw new IllegalStateException("Insufficient funds");
+            updateBalance(fromId, -amountCents);
+            updateBalance(toId,   +amountCents);
+            db.commit();
+        } catch (Exception e) {
+            db.rollback();
+            throw e;
+        } finally {
+            db.setAutoCommit(true);
+        }
+    }
+
+    private int queryBalance(long id) throws SQLException {
+        try (PreparedStatement ps = db.prepareStatement("SELECT balance FROM accounts WHERE id=?")) {
+            ps.setLong(1, id);
+            ResultSet rs = ps.executeQuery();
+            rs.next();
+            return rs.getInt("balance");
+        }
+    }
+
+    private void updateBalance(long id, int delta) throws SQLException {
+        try (PreparedStatement ps = db.prepareStatement("UPDATE accounts SET balance=balance+? WHERE id=?")) {
+            ps.setInt(1, delta);
+            ps.setLong(2, id);
+            ps.executeUpdate();
+        }
+    }
+}
+```
+
+**Key point:** All logic for one use case lives in one method — fast to write, but grows brittle as rules multiply across scripts.
+
+---
+
+### Service Layer
+
+**Intent:** Define application operations as a thin coordination layer that delegates to domain objects and repositories.
+
+```java
+public final class TransferService {
+    private final AccountRepository accounts;
+    private final TransactionLog log;
+
+    public TransferService(AccountRepository accounts, TransactionLog log) {
+        this.accounts = accounts;
+        this.log = log;
+    }
+
+    public void transfer(long fromId, long toId, int amountCents) {
+        Account from = accounts.findById(fromId).orElseThrow();
+        Account to   = accounts.findById(toId).orElseThrow();
+
+        from.debit(amountCents);   // domain logic lives here
+        to.credit(amountCents);    // domain logic lives here
+
+        accounts.save(from);
+        accounts.save(to);
+        log.record(fromId, toId, amountCents);
+    }
+}
+
+public interface AccountRepository {
+    Optional<Account> findById(long id);
+    void save(Account account);
+}
+```
+
+**Key point:** The service layer owns transaction boundaries and use-case flow but contains no business rules — those belong to domain objects.
+
+---
+
+### Data Mapper
+
+**Intent:** Transfer data between domain objects and the database without letting either know about the other.
+
+```java
+public final class Account {
+    private long id;
+    private int balanceCents;
+
+    public Account(long id, int balanceCents) { this.id = id; this.balanceCents = balanceCents; }
+    public long getId()          { return id; }
+    public int getBalance()      { return balanceCents; }
+    public void debit(int cents) { if (cents > balanceCents) throw new IllegalStateException(); balanceCents -= cents; }
+    public void credit(int cents){ balanceCents += cents; }
+}
+
+public final class AccountMapper {
+    private final Connection db;
+
+    public AccountMapper(Connection db) { this.db = db; }
+
+    public Optional<Account> findById(long id) throws SQLException {
+        try (PreparedStatement ps = db.prepareStatement("SELECT id, balance FROM accounts WHERE id=?")) {
+            ps.setLong(1, id);
+            ResultSet rs = ps.executeQuery();
+            if (!rs.next()) return Optional.empty();
+            return Optional.of(new Account(rs.getLong("id"), rs.getInt("balance")));
+        }
+    }
+
+    public void update(Account account) throws SQLException {
+        try (PreparedStatement ps = db.prepareStatement("UPDATE accounts SET balance=? WHERE id=?")) {
+            ps.setInt(1, account.getBalance());
+            ps.setLong(2, account.getId());
+            ps.executeUpdate();
+        }
+    }
+}
+```
+
+**Key point:** `Account` has zero SQL — the mapper alone knows the table structure, so schema changes touch only one class.
+
+---
+
+### Unit of Work
+
+**Intent:** Track objects registered as new, dirty, or deleted within a business transaction and flush all changes in one commit.
+
+```java
+public final class UnitOfWork {
+    private final List<Account> newObjects     = new ArrayList<>();
+    private final List<Account> dirtyObjects   = new ArrayList<>();
+    private final List<Account> removedObjects = new ArrayList<>();
+    private final AccountMapper mapper;
+
+    public UnitOfWork(AccountMapper mapper) { this.mapper = mapper; }
+
+    public void registerNew(Account a)     { newObjects.add(a); }
+    public void registerDirty(Account a)   { if (!dirtyObjects.contains(a)) dirtyObjects.add(a); }
+    public void registerRemoved(Account a) { removedObjects.add(a); }
+
+    public void commit() throws SQLException {
+        for (Account a : newObjects)     mapper.insert(a);
+        for (Account a : dirtyObjects)   mapper.update(a);
+        for (Account a : removedObjects) mapper.delete(a);
+        newObjects.clear(); dirtyObjects.clear(); removedObjects.clear();
+    }
+}
+```
+
+**Key point:** Callers mutate domain objects freely during a business operation; the Unit of Work batches all resulting DB writes into one atomic flush.
+
+---
+
+### Data Transfer Object (DTO)
+
+**Intent:** Carry data across layer or process boundaries as a plain, immutable structure with no behavior.
+
+```java
+public record AccountSummaryDto(
+    long   accountId,
+    String ownerName,
+    int    balanceCents,
+    String currency
+) {}
+
+// Assembled at the service/mapper boundary — never passed down into domain logic
+public final class AccountQueryService {
+    private final AccountMapper mapper;
+
+    public AccountQueryService(AccountMapper mapper) { this.mapper = mapper; }
+
+    public AccountSummaryDto getSummary(long id) throws SQLException {
+        Account account = mapper.findById(id).orElseThrow();
+        return new AccountSummaryDto(
+            account.getId(),
+            account.getOwnerName(),
+            account.getBalance(),
+            "USD"
+        );
+    }
+}
+```
+
+**Key point:** A `record` DTO is immutable by default and serialization-friendly — it carries data, never decides anything.
+
+---
+
+### Value Object (Money)
+
+**Intent:** Represent a monetary amount as an immutable object with value semantics, arithmetic, and currency safety.
+
+```java
+public final class Money {
+    private final int cents;
+    private final String currency;
+
+    public Money(int cents, String currency) {
+        this.cents    = cents;
+        this.currency = currency;
+    }
+
+    public Money add(Money other) {
+        assertSameCurrency(other);
+        return new Money(this.cents + other.cents, currency);
+    }
+
+    public Money subtract(Money other) {
+        assertSameCurrency(other);
+        return new Money(this.cents - other.cents, currency);
+    }
+
+    public boolean isGreaterThan(Money other) {
+        assertSameCurrency(other);
+        return this.cents > other.cents;
+    }
+
+    private void assertSameCurrency(Money other) {
+        if (!this.currency.equals(other.currency))
+            throw new IllegalArgumentException("Currency mismatch: " + currency + " vs " + other.currency);
+    }
+
+    @Override public boolean equals(Object o) {
+        return o instanceof Money m && cents == m.cents && currency.equals(m.currency);
+    }
+    @Override public int hashCode() { return 31 * cents + currency.hashCode(); }
+    @Override public String toString() { return currency + " " + (cents / 100.0); }
+}
+```
+
+**Key point:** Every arithmetic operation returns a new `Money` instance — no mutation, no primitive leakage, and currency mismatches fail loudly.
+
+---
+
+### Special Case
+
+**Intent:** Replace null checks with a subclass that represents an absent or unknown entity and returns safe default behavior.
+
+```java
+public abstract class Customer {
+    public abstract String getName();
+    public abstract int getCreditLimitCents();
+    public abstract boolean isAllowedToPurchase(int amountCents);
+}
+
+public final class RegisteredCustomer extends Customer {
+    private final String name;
+    private final int creditLimitCents;
+
+    public RegisteredCustomer(String name, int creditLimitCents) {
+        this.name = name; this.creditLimitCents = creditLimitCents;
+    }
+    public String getName()                           { return name; }
+    public int getCreditLimitCents()                  { return creditLimitCents; }
+    public boolean isAllowedToPurchase(int amount)    { return amount <= creditLimitCents; }
+}
+
+public final class GuestCustomer extends Customer {
+    public String getName()                           { return "Guest"; }
+    public int getCreditLimitCents()                  { return 0; }
+    public boolean isAllowedToPurchase(int amount)    { return amount <= 5000; } // small limit for guests
+}
+
+// Usage — callers never check for null
+Customer customer = repository.findById(id).orElse(new GuestCustomer());
+System.out.println(customer.getName());
+System.out.println(customer.isAllowedToPurchase(3000));
+```
+
+**Key point:** `GuestCustomer` eliminates `if (customer == null)` branches by providing meaningful defaults — the callsite reads like the happy path.
+
+---
+
+### Gateway
+
+**Intent:** Wrap an external API or service behind a clean interface so the rest of the system never sees its details.
+
+```java
+public interface ExchangeRateGateway {
+    double getRate(String fromCurrency, String toCurrency);
+}
+
+public final class HttpExchangeRateGateway implements ExchangeRateGateway {
+    private final String baseUrl;
+    private final HttpClient http;
+
+    public HttpExchangeRateGateway(String baseUrl) {
+        this.baseUrl = baseUrl;
+        this.http    = HttpClient.newHttpClient();
+    }
+
+    public double getRate(String from, String to) {
+        try {
+            HttpRequest request = HttpRequest.newBuilder()
+                .uri(URI.create(baseUrl + "/rate?from=" + from + "&to=" + to))
+                .build();
+            HttpResponse<String> response = http.send(request, HttpResponse.BodyHandlers.ofString());
+            return Double.parseDouble(response.body().trim());
+        } catch (Exception e) {
+            throw new RuntimeException("Exchange rate lookup failed", e);
+        }
+    }
+}
+
+public final class StubExchangeRateGateway implements ExchangeRateGateway {
+    public double getRate(String from, String to) { return 1.0; } // always 1:1 in tests
+}
+```
+
+**Key point:** Domain code imports only `ExchangeRateGateway` — swapping the real HTTP call for a test stub requires zero changes to business logic.
+
+---
+
+### Query Object
+
+**Intent:** Represent filter criteria as an object so queries can be composed, passed, and reused without embedding SQL strings.
+
+```java
+public final class AccountQuery {
+    private String currency;
+    private Integer minBalanceCents;
+    private Integer maxBalanceCents;
+
+    public AccountQuery currency(String currency)          { this.currency = currency; return this; }
+    public AccountQuery minBalance(int cents)              { this.minBalanceCents = cents; return this; }
+    public AccountQuery maxBalance(int cents)              { this.maxBalanceCents = cents; return this; }
+
+    public List<Account> execute(List<Account> source) {
+        return source.stream()
+            .filter(a -> currency        == null || a.getCurrency().equals(currency))
+            .filter(a -> minBalanceCents == null || a.getBalance() >= minBalanceCents)
+            .filter(a -> maxBalanceCents == null || a.getBalance() <= maxBalanceCents)
+            .toList();
+    }
+}
+
+// Usage
+List<Account> richUsdAccounts = new AccountQuery()
+    .currency("USD")
+    .minBalance(100_000)
+    .execute(allAccounts);
+```
+
+**Key point:** Filter criteria become a first-class object that can be passed between layers, logged, or translated to SQL — no string interpolation scattered across callers.
+
+---
+
+### Layer Supertype
+
+**Intent:** Provide a base class for an entire layer that centralizes shared infrastructure concerns like identity, timestamps, and equality.
+
+```java
+public abstract class PersistentEntity {
+    private final long id;
+    private final Instant createdAt;
+    private Instant updatedAt;
+
+    protected PersistentEntity(long id) {
+        this.id        = id;
+        this.createdAt = Instant.now();
+        this.updatedAt = this.createdAt;
+    }
+
+    public long    getId()        { return id; }
+    public Instant getCreatedAt() { return createdAt; }
+    public Instant getUpdatedAt() { return updatedAt; }
+
+    protected void touch() { this.updatedAt = Instant.now(); }
+
+    @Override public boolean equals(Object o) {
+        return o instanceof PersistentEntity e && id == e.id && getClass() == o.getClass();
+    }
+    @Override public int hashCode() { return Long.hashCode(id); }
+}
+
+public final class Account extends PersistentEntity {
+    private int balanceCents;
+
+    public Account(long id, int balanceCents) { super(id); this.balanceCents = balanceCents; }
+
+    public void credit(int cents) { balanceCents += cents; touch(); }
+    public int getBalance()       { return balanceCents; }
+}
+```
+
+**Key point:** Identity-based equality, audit timestamps, and the `touch()` lifecycle hook are defined once in the supertype — every entity in the layer inherits them without repetition.

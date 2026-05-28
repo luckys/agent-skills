@@ -960,3 +960,374 @@ else
 - Error paths are visible in the return type — callers cannot ignore them without a deliberate `!` or unchecked access.
 - The private constructor enforces that `Value` is only populated on success and `Error` only on failure.
 - This pattern composes well with LINQ (`Select`, `Where`) or monadic chains (`Map`, `Bind`) once the `Result<T>` type is extended.
+
+---
+
+## Enterprise Application Patterns
+
+### Transaction Script
+
+**Intent:** Organize business logic as a single procedural method that directly coordinates DB calls for one use case.
+
+```csharp
+public sealed class TransferFundsScript
+{
+    private readonly IDbConnection db;
+
+    public TransferFundsScript(IDbConnection db) => this.db = db;
+
+    public void Execute(int fromAccountId, int toAccountId, decimal amount)
+    {
+        using var tx = db.BeginTransaction();
+        try
+        {
+            var from = db.QuerySingle<decimal>(
+                "SELECT balance FROM accounts WHERE id = @id", new { id = fromAccountId }, tx);
+            if (from < amount) throw new InvalidOperationException("Insufficient funds");
+
+            db.Execute("UPDATE accounts SET balance = balance - @amount WHERE id = @id",
+                new { amount, id = fromAccountId }, tx);
+            db.Execute("UPDATE accounts SET balance = balance + @amount WHERE id = @id",
+                new { amount, id = toAccountId }, tx);
+
+            tx.Commit();
+        }
+        catch
+        {
+            tx.Rollback();
+            throw;
+        }
+    }
+}
+```
+
+**Key point:** All logic for one use case lives in one method — simple and direct, but grows unwieldy once multiple scripts share overlapping rules.
+
+---
+
+### Service Layer
+
+**Intent:** Expose application operations through a class that coordinates domain objects and repositories, keeping controllers thin.
+
+```csharp
+public sealed class OrderService
+{
+    private readonly IOrderRepository orders;
+    private readonly IInventoryRepository inventory;
+
+    public OrderService(IOrderRepository orders, IInventoryRepository inventory)
+    {
+        this.orders    = orders;
+        this.inventory = inventory;
+    }
+
+    public Order PlaceOrder(int customerId, int productId, int quantity)
+    {
+        var stock = inventory.GetStock(productId);
+        if (stock < quantity)
+            throw new InvalidOperationException("Not enough stock");
+
+        inventory.Reserve(productId, quantity);
+
+        var order = new Order(customerId, productId, quantity);
+        orders.Add(order);
+        return order;
+    }
+}
+```
+
+**Key point:** The service layer is the single boundary where application workflows are defined — domain objects stay free of HTTP/DB concerns, and callers stay free of business rules.
+
+---
+
+### Data Mapper
+
+**Intent:** Translate between a domain object and a DB row in a dedicated class, keeping the domain object free of persistence logic.
+
+```csharp
+public sealed class Customer
+{
+    public int Id { get; init; }
+    public string Name { get; init; } = string.Empty;
+    public string Email { get; init; } = string.Empty;
+}
+
+public sealed class CustomerMapper
+{
+    private readonly IDbConnection db;
+
+    public CustomerMapper(IDbConnection db) => this.db = db;
+
+    public Customer? FindById(int id)
+    {
+        var row = db.QuerySingleOrDefault(
+            "SELECT id, name, email FROM customers WHERE id = @id", new { id });
+        if (row is null) return null;
+        return new Customer { Id = row.id, Name = row.name, Email = row.email };
+    }
+
+    public void Insert(Customer customer) =>
+        db.Execute("INSERT INTO customers (name, email) VALUES (@Name, @Email)", customer);
+}
+```
+
+**Key point:** `Customer` has no knowledge of tables or columns — all SQL is confined to the mapper, so the domain model can evolve without touching persistence code.
+
+---
+
+### Unit of Work
+
+**Intent:** Track new, dirty, and removed objects across a business transaction and flush all changes in a single DB commit.
+
+```csharp
+public sealed class UnitOfWork : IDisposable
+{
+    private readonly IDbConnection db;
+    private readonly IDbTransaction tx;
+
+    private readonly List<object> newObjects     = new();
+    private readonly List<object> dirtyObjects   = new();
+    private readonly List<object> removedObjects = new();
+
+    public UnitOfWork(IDbConnection db)
+    {
+        this.db = db;
+        tx = db.BeginTransaction();
+    }
+
+    public void RegisterNew(object obj)     => newObjects.Add(obj);
+    public void RegisterDirty(object obj)   => dirtyObjects.Add(obj);
+    public void RegisterRemoved(object obj) => removedObjects.Add(obj);
+
+    public void Commit()
+    {
+        foreach (var obj in newObjects)     InsertRow(obj);
+        foreach (var obj in dirtyObjects)   UpdateRow(obj);
+        foreach (var obj in removedObjects) DeleteRow(obj);
+        tx.Commit();
+    }
+
+    private void InsertRow(object obj) => db.Execute("INSERT ...", obj, tx);
+    private void UpdateRow(object obj) => db.Execute("UPDATE ...", obj, tx);
+    private void DeleteRow(object obj) => db.Execute("DELETE ...", obj, tx);
+
+    public void Dispose() => tx.Dispose();
+}
+```
+
+**Key point:** Business logic registers intent (new/dirty/removed) without issuing SQL; the Unit of Work batches everything into one atomic flush, reducing round-trips and preventing partial updates.
+
+---
+
+### Data Transfer Object (DTO)
+
+**Intent:** Carry data across layer boundaries as a plain, behavior-free record.
+
+```csharp
+public sealed record CreateOrderRequest(
+    int    CustomerId,
+    int    ProductId,
+    int    Quantity);
+
+public sealed record OrderSummary(
+    int     OrderId,
+    string  ProductName,
+    int     Quantity,
+    decimal TotalPrice);
+
+// Mapper — DTOs do not map themselves
+public static class OrderMapper
+{
+    public static OrderSummary ToSummary(Order order, string productName) =>
+        new(order.Id, productName, order.Quantity, order.UnitPrice * order.Quantity);
+}
+```
+
+**Key point:** A DTO is a dumb data container — no methods, no validation, no references to other layers — which keeps serialization and transport concerns out of domain objects.
+
+---
+
+### Value Object (Money)
+
+**Intent:** Represent a monetary amount as an immutable value with value semantics and domain-safe arithmetic.
+
+```csharp
+public sealed record Money(decimal Amount, string Currency)
+{
+    public Money Add(Money other)
+    {
+        if (Currency != other.Currency)
+            throw new InvalidOperationException("Currency mismatch");
+        return this with { Amount = Amount + other.Amount };
+    }
+
+    public Money Multiply(decimal factor) =>
+        this with { Amount = Math.Round(Amount * factor, 2) };
+
+    public override string ToString() => $"{Currency} {Amount:F2}";
+}
+
+// Usage
+var price    = new Money(19.99m, "USD");
+var tax      = price.Multiply(0.21m);
+var total    = price.Add(tax);
+Console.WriteLine(total); // USD 24.19
+```
+
+**Key point:** `record` gives structural equality for free — two `Money` instances with the same amount and currency are equal without overriding `Equals`, and immutability prevents accidental mutation of shared values.
+
+---
+
+### Special Case
+
+**Intent:** Replace null checks for a missing entity with a subclass that returns safe default behavior.
+
+```csharp
+public abstract class Customer
+{
+    public abstract string Name { get; }
+    public abstract decimal Discount { get; }
+    public abstract bool IsGuest { get; }
+}
+
+public sealed class RegisteredCustomer : Customer
+{
+    public override string Name     { get; }
+    public override decimal Discount { get; }
+    public override bool IsGuest    => false;
+
+    public RegisteredCustomer(string name, decimal discount)
+        => (Name, Discount) = (name, discount);
+}
+
+public sealed class GuestCustomer : Customer          // Special Case
+{
+    public override string  Name     => "Guest";
+    public override decimal Discount => 0m;
+    public override bool    IsGuest  => true;
+}
+
+public static class CustomerRepository
+{
+    public static Customer FindById(int id) =>
+        id == 42 ? new RegisteredCustomer("Alice", 0.10m)
+                 : new GuestCustomer();            // never null
+}
+
+// Usage — no null checks anywhere
+var customer = CustomerRepository.FindById(99);
+Console.WriteLine($"{customer.Name}: {customer.Discount:P0} off");
+```
+
+**Key point:** Callers use `Customer` uniformly and never branch on null — the Special Case object absorbs the "missing" scenario with meaningful defaults rather than silently passing null through the system.
+
+---
+
+### Gateway
+
+**Intent:** Wrap an external API or service behind a clean interface so the rest of the application never depends on external SDK types.
+
+```csharp
+public sealed record ExchangeRate(string From, string To, decimal Rate);
+
+public interface ICurrencyGateway
+{
+    ExchangeRate GetRate(string fromCurrency, string toCurrency);
+}
+
+public sealed class HttpCurrencyGateway : ICurrencyGateway
+{
+    private readonly HttpClient http;
+    private readonly string baseUrl;
+
+    public HttpCurrencyGateway(HttpClient http, string baseUrl)
+        => (this.http, this.baseUrl) = (http, baseUrl);
+
+    public ExchangeRate GetRate(string from, string to)
+    {
+        var response = http.GetStringAsync($"{baseUrl}/rates?from={from}&to={to}").Result;
+        var rate     = System.Text.Json.JsonSerializer.Deserialize<decimal>(response);
+        return new ExchangeRate(from, to, rate);
+    }
+}
+
+public sealed class StubCurrencyGateway : ICurrencyGateway   // for tests
+{
+    public ExchangeRate GetRate(string from, string to) =>
+        new(from, to, 1.0m);
+}
+```
+
+**Key point:** Application code depends only on `ICurrencyGateway` and `ExchangeRate` — swapping the real HTTP call for a stub in tests, or changing the external provider, requires zero changes outside this file.
+
+---
+
+### Query Object
+
+**Intent:** Encapsulate filter criteria for a collection query as a first-class object, composable without building raw SQL strings.
+
+```csharp
+public sealed class ProductQuery
+{
+    public string? Category    { get; init; }
+    public decimal? MaxPrice   { get; init; }
+    public bool InStockOnly    { get; init; }
+
+    public IEnumerable<Product> ApplyTo(IEnumerable<Product> source)
+    {
+        var result = source;
+        if (Category is not null)
+            result = result.Where(p => p.Category == Category);
+        if (MaxPrice is not null)
+            result = result.Where(p => p.Price <= MaxPrice);
+        if (InStockOnly)
+            result = result.Where(p => p.StockCount > 0);
+        return result;
+    }
+}
+
+// Usage
+var query = new ProductQuery { Category = "Books", MaxPrice = 25m, InStockOnly = true };
+var products = query.ApplyTo(catalog.All());
+```
+
+**Key point:** Criteria live in a typed object rather than scattered `if` blocks or string concatenation — queries are composable, testable in isolation, and the repository never needs a new method per filter combination.
+
+---
+
+### Layer Supertype
+
+**Intent:** Provide shared infrastructure — IDs, timestamps, equality — to all entities in a layer through a single base class.
+
+```csharp
+public abstract class Entity
+{
+    public Guid Id          { get; } = Guid.NewGuid();
+    public DateTime Created { get; } = DateTime.UtcNow;
+    public DateTime Updated { get; private set; } = DateTime.UtcNow;
+
+    protected void MarkUpdated() => Updated = DateTime.UtcNow;
+
+    public override bool Equals(object? obj) =>
+        obj is Entity other && Id == other.Id;
+
+    public override int GetHashCode() => Id.GetHashCode();
+}
+
+public sealed class Product : Entity
+{
+    public string  Name  { get; private set; }
+    public decimal Price { get; private set; }
+
+    public Product(string name, decimal price)
+        => (Name, Price) = (name, price);
+
+    public void UpdatePrice(decimal newPrice)
+    {
+        Price = newPrice;
+        MarkUpdated();
+    }
+}
+```
+
+**Key point:** Every entity automatically gains identity-based equality and audit timestamps without repeating that code — the Layer Supertype is the single place to add cross-cutting entity concerns like soft-delete flags or domain event collections.

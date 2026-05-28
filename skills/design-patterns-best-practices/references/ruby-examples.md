@@ -920,3 +920,343 @@ end
 - The caller is forced to inspect `success?` before accessing `value` — there is no way to silently ignore a failure.
 - `Data.define` with class-level factory methods (`ok`, `fail`) gives a clean, immutable value object with minimal boilerplate.
 - This pattern composes well with pipelines: each step returns a `Result` and downstream steps short-circuit on `failure?` — no exception unwinding needed.
+
+---
+
+## Enterprise Application Patterns
+
+Patterns from Fowler's *Patterns of Enterprise Application Architecture* (PEAA). Each addresses a recurring structural problem in layered, data-intensive systems.
+
+---
+
+### Transaction Script
+
+**Intent:** Encapsulate one use case as a plain procedure that reads input, performs DB calls, and returns a result.
+
+```ruby
+class TransferFunds
+  def initialize(db)
+    @db = db
+  end
+
+  def call(from_id:, to_id:, amount_cents:)
+    from = @db.find_account(from_id)
+    to   = @db.find_account(to_id)
+
+    raise "Insufficient funds" if from[:balance] < amount_cents
+
+    @db.transaction do
+      @db.update_balance(from_id, from[:balance] - amount_cents)
+      @db.update_balance(to_id,   to[:balance]  + amount_cents)
+    end
+
+    { status: :ok }
+  end
+end
+```
+
+**Key point:** All logic for a single use case lives in one method — simple to follow, but grows unwieldy when multiple scripts share duplicated data-access or validation code.
+
+---
+
+### Service Layer
+
+**Intent:** Coordinate domain objects and repositories to expose a clean set of application operations to callers.
+
+```ruby
+class OrderService
+  def initialize(order_repo:, inventory_repo:, mailer:)
+    @orders    = order_repo
+    @inventory = inventory_repo
+    @mailer    = mailer
+  end
+
+  def place_order(customer_id:, items:)
+    items.each do |item|
+      raise "#{item[:sku]} out of stock" unless @inventory.available?(item[:sku], item[:qty])
+    end
+
+    order = Order.new(customer_id: customer_id, items: items)
+    @orders.save(order)
+    @inventory.reserve(items)
+    @mailer.send_confirmation(order)
+
+    order
+  end
+end
+```
+
+**Key point:** The service layer owns orchestration and transaction boundaries — domain objects stay focused on business rules, and callers (controllers, jobs) stay thin.
+
+---
+
+### Data Mapper
+
+**Intent:** Move data between domain objects and the database without the domain object knowing about persistence.
+
+```ruby
+class User
+  attr_accessor :id, :name, :email
+
+  def initialize(id: nil, name:, email:)
+    @id    = id
+    @name  = name
+    @email = email
+  end
+end
+
+class UserMapper
+  def initialize(db)
+    @db = db
+  end
+
+  def find(id)
+    row = @db.execute("SELECT id, name, email FROM users WHERE id = ?", id).first
+    User.new(id: row["id"], name: row["name"], email: row["email"])
+  end
+
+  def save(user)
+    if user.id
+      @db.execute("UPDATE users SET name=?, email=? WHERE id=?", user.name, user.email, user.id)
+    else
+      @db.execute("INSERT INTO users (name, email) VALUES (?, ?)", user.name, user.email)
+      user.id = @db.last_insert_row_id
+    end
+  end
+end
+```
+
+**Key point:** `User` contains zero SQL — the mapper is the only class that knows how rows translate to objects, so domain logic and schema concerns evolve independently.
+
+---
+
+### Unit of Work
+
+**Intent:** Track new, dirty, and removed objects during a business transaction and flush all changes in a single DB round-trip.
+
+```ruby
+class UnitOfWork
+  def initialize(db)
+    @db      = db
+    @new     = []
+    @dirty   = []
+    @removed = []
+  end
+
+  def register_new(entity)     = @new     << entity
+  def register_dirty(entity)   = @dirty   << entity
+  def register_removed(entity) = @removed << entity
+
+  def commit
+    @db.transaction do
+      @new.each     { |e| @db.insert(e) }
+      @dirty.each   { |e| @db.update(e) }
+      @removed.each { |e| @db.delete(e) }
+    end
+    @new.clear; @dirty.clear; @removed.clear
+  end
+end
+```
+
+**Key point:** Callers mutate objects and register intent; a single `commit` call issues one transaction — eliminating scattered, interleaved DB calls throughout a business operation.
+
+---
+
+### Data Transfer Object (DTO)
+
+**Intent:** Carry data across layer or process boundaries using a plain, behavior-free value container.
+
+```ruby
+UserDTO = Struct.new(:id, :name, :email, keyword_init: true) do
+  def self.from_domain(user)
+    new(id: user.id, name: user.name, email: user.email)
+  end
+end
+
+# Controller / API layer — never exposes the domain User directly
+class UsersController
+  def initialize(user_service)
+    @service = user_service
+  end
+
+  def show(id)
+    user = @service.find(id)
+    UserDTO.from_domain(user)   # only serializable data crosses the boundary
+  end
+end
+```
+
+**Key point:** A DTO has no methods beyond construction and attribute access — it prevents callers from accidentally invoking domain logic through a reference they were only meant to read.
+
+---
+
+### Value Object (Money)
+
+**Intent:** Represent a monetary amount as a frozen, equality-by-value object with no identity beyond its attributes.
+
+```ruby
+Money = Data.define(:amount_cents, :currency) do
+  def +(other)
+    raise "Currency mismatch" unless currency == other.currency
+    Money.new(amount_cents: amount_cents + other.amount_cents, currency: currency)
+  end
+
+  def *(factor)
+    Money.new(amount_cents: (amount_cents * factor).round, currency: currency)
+  end
+
+  def to_s
+    "#{currency} #{"%.2f" % (amount_cents / 100.0)}"
+  end
+end
+
+price    = Money.new(amount_cents: 1000, currency: "USD")
+tax      = price * 0.21
+total    = price + tax
+puts total   # USD 12.10
+```
+
+**Key point:** `Data.define` makes the struct frozen and equality-by-value by default — two `Money` objects with the same cents and currency are `==` without any custom `eql?` or `hash` implementation.
+
+---
+
+### Special Case
+
+**Intent:** Replace nil checks with a subclass that represents a missing or null entity and provides safe default behavior.
+
+```ruby
+class Customer
+  attr_reader :name, :email
+
+  def initialize(name:, email:)
+    @name  = name
+    @email = email
+  end
+
+  def guest? = false
+end
+
+class GuestCustomer < Customer
+  def initialize
+    super(name: "Guest", email: "")
+  end
+
+  def guest? = true
+end
+
+class CustomerRepository
+  def find(id)
+    row = @db.find(id)
+    row ? Customer.new(name: row[:name], email: row[:email]) : GuestCustomer.new
+  end
+end
+
+# Caller — no nil checks anywhere
+customer = repo.find(params[:id])
+puts "Hello, #{customer.name}"
+puts "Logged in" unless customer.guest?
+```
+
+**Key point:** Moving nil-handling into a dedicated subclass eliminates scattered `if customer` guards — callers call the same interface on every return value.
+
+---
+
+### Gateway
+
+**Intent:** Wrap an external API or service behind a clean interface so the rest of the codebase is insulated from third-party specifics.
+
+```ruby
+class PaymentGateway
+  def initialize(http_client, api_key)
+    @http    = http_client
+    @api_key = api_key
+  end
+
+  def charge(amount_cents:, currency:, token:)
+    response = @http.post(
+      "https://pay.example.com/charges",
+      headers: { "Authorization" => "Bearer #{@api_key}" },
+      body:    { amount: amount_cents, currency: currency, source: token }
+    )
+
+    raise "Payment failed: #{response[:error]}" unless response[:status] == "succeeded"
+
+    { charge_id: response[:id], amount_cents: amount_cents }
+  end
+end
+```
+
+**Key point:** Switching payment providers means rewriting one class — all callers use `gateway.charge(...)` and never see HTTP, authentication, or provider-specific error shapes.
+
+---
+
+### Query Object
+
+**Intent:** Encapsulate filter criteria and query logic for a collection in a dedicated object, keeping repositories thin.
+
+```ruby
+class InvoiceQuery
+  def initialize(status: nil, customer_id: nil, overdue_only: false)
+    @status      = status
+    @customer_id = customer_id
+    @overdue_only = overdue_only
+  end
+
+  def call(dataset)
+    result = dataset
+    result = result.select { |i| i[:status]      == @status      } if @status
+    result = result.select { |i| i[:customer_id] == @customer_id } if @customer_id
+    result = result.select { |i| i[:due_date]    < Date.today    } if @overdue_only
+    result
+  end
+end
+
+# Usage
+overdue = InvoiceQuery.new(status: "open", overdue_only: true).call(all_invoices)
+```
+
+**Key point:** Query criteria are composable, testable objects — the repository stays free of conditional branching, and complex filter combinations do not proliferate into repository methods.
+
+---
+
+### Layer Supertype
+
+**Intent:** Provide a base class for an entire layer that supplies shared infrastructure (IDs, timestamps, equality) so concrete classes stay focused on domain logic.
+
+```ruby
+require "securerandom"
+
+class Entity
+  attr_reader :id, :created_at, :updated_at
+
+  def initialize
+    @id         = SecureRandom.uuid
+    @created_at = Time.now
+    @updated_at = Time.now
+  end
+
+  def touch
+    @updated_at = Time.now
+  end
+
+  def ==(other)
+    other.is_a?(self.class) && id == other.id
+  end
+
+  alias eql? ==
+
+  def hash = id.hash
+end
+
+class Product < Entity
+  attr_reader :name, :price_cents
+
+  def initialize(name:, price_cents:)
+    super()
+    @name        = name
+    @price_cents = price_cents
+  end
+end
+```
+
+**Key point:** Shared cross-cutting concerns (identity, timestamps, equality semantics) live in one place — concrete entities inherit them without repeating boilerplate, and changes to the policy propagate automatically across the entire layer.

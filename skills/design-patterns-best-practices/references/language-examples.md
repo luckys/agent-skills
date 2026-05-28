@@ -42,6 +42,18 @@ Each language file contains examples for the same 19 patterns:
 **Other**
 - Result Pattern — typed success/failure return instead of exceptions
 
+**Enterprise Application Patterns (PoEAA)**
+- Transaction Script — procedural logic per use case with direct DB access
+- Service Layer — application boundary coordinating domain objects and repositories
+- Data Mapper — class that maps between domain objects and DB rows without polluting the domain
+- Unit of Work — tracks new/dirty/removed objects and flushes all changes in one transaction
+- Data Transfer Object (DTO) — plain immutable object for moving data across layer boundaries
+- Value Object (Money) — immutable object with value semantics for monetary amounts
+- Special Case — subclass replacing null with safe default behavior
+- Gateway — clean interface wrapping an external API or service
+- Query Object — encapsulates filter criteria for a collection query
+- Layer Supertype — base class for an entire layer holding shared infrastructure behavior
+
 ## How to Use This Reference
 
 - Read the language file that matches the user's codebase first.

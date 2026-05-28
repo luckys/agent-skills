@@ -1020,3 +1020,443 @@ match result:
 - The return type `Result[User, ValidationError]` documents both outcomes in the function signature — no hidden exception contract.
 - `Ok` and `Err` are plain frozen dataclasses; no framework is needed, and they compose naturally with `match`, `if result.ok`, or unpacking.
 - Callers cannot accidentally treat a failure as a success — they must inspect the result before accessing `value`.
+
+---
+
+## Enterprise Application Patterns
+
+Patterns from Fowler's *Patterns of Enterprise Application Architecture* (PEAA). They address the layering, data access, and coordination concerns that arise in business applications.
+
+---
+
+### Transaction Script
+
+**Intent:** Organise business logic for a single use case as a plain procedure that talks directly to the database.
+
+```python
+import sqlite3
+from dataclasses import dataclass
+
+
+@dataclass
+class TransferResult:
+    success: bool
+    message: str
+
+
+def transfer_funds(
+    db: sqlite3.Connection,
+    from_account: int,
+    to_account: int,
+    amount_cents: int,
+) -> TransferResult:
+    cursor = db.cursor()
+    cursor.execute("SELECT balance FROM accounts WHERE id = ?", (from_account,))
+    row = cursor.fetchone()
+    if row is None:
+        return TransferResult(False, "Source account not found")
+    if row[0] < amount_cents:
+        return TransferResult(False, "Insufficient funds")
+
+    cursor.execute(
+        "UPDATE accounts SET balance = balance - ? WHERE id = ?",
+        (amount_cents, from_account),
+    )
+    cursor.execute(
+        "UPDATE accounts SET balance = balance + ? WHERE id = ?",
+        (amount_cents, to_account),
+    )
+    db.commit()
+    return TransferResult(True, "Transfer complete")
+```
+
+**Key point:** All logic for one use case lives in one function — easy to follow, but domain rules and SQL are interleaved, which becomes hard to test and reuse as the application grows.
+
+---
+
+### Service Layer
+
+**Intent:** A class that coordinates domain objects and repositories and exposes coarse-grained application operations to callers.
+
+```python
+from dataclasses import dataclass
+
+
+@dataclass
+class Order:
+    id: int
+    customer_id: int
+    total_cents: int
+    status: str = "pending"
+
+
+class OrderRepository:
+    def find(self, order_id: int) -> Order: ...
+    def save(self, order: Order) -> None: ...
+
+
+class PaymentGateway:
+    def charge(self, amount_cents: int, customer_id: int) -> bool: ...
+
+
+class OrderService:
+    def __init__(
+        self,
+        order_repo: OrderRepository,
+        payment_gateway: PaymentGateway,
+    ) -> None:
+        self._orders = order_repo
+        self._payments = payment_gateway
+
+    def place_order(self, order_id: int) -> None:
+        order = self._orders.find(order_id)
+        charged = self._payments.charge(order.total_cents, order.customer_id)
+        if not charged:
+            raise RuntimeError("Payment failed")
+        order.status = "confirmed"
+        self._orders.save(order)
+```
+
+**Key point:** The service layer owns the application workflow (fetch → charge → persist) but delegates every domain concept and I/O operation to dedicated collaborators, keeping it thin and testable.
+
+---
+
+### Data Mapper
+
+**Intent:** A class that moves data between domain objects and database rows without letting either one know about the other.
+
+```python
+import sqlite3
+from dataclasses import dataclass
+
+
+@dataclass
+class Product:
+    id: int | None
+    name: str
+    price_cents: int
+
+
+class ProductMapper:
+    def __init__(self, db: sqlite3.Connection) -> None:
+        self._db = db
+
+    def find(self, product_id: int) -> Product | None:
+        row = self._db.execute(
+            "SELECT id, name, price_cents FROM products WHERE id = ?",
+            (product_id,),
+        ).fetchone()
+        if row is None:
+            return None
+        return Product(id=row[0], name=row[1], price_cents=row[2])
+
+    def insert(self, product: Product) -> Product:
+        cursor = self._db.execute(
+            "INSERT INTO products (name, price_cents) VALUES (?, ?)",
+            (product.name, product.price_cents),
+        )
+        return Product(id=cursor.lastrowid, name=product.name, price_cents=product.price_cents)
+```
+
+**Key point:** `Product` contains zero SQL — all mapping logic lives in `ProductMapper`, so domain objects stay pure and the persistence strategy can change without touching the domain.
+
+---
+
+### Unit of Work
+
+**Intent:** Track new, modified, and removed domain objects within a business transaction and flush all changes in a single commit.
+
+```python
+from dataclasses import dataclass, field
+
+
+@dataclass
+class Entity:
+    id: int
+    name: str
+
+
+class UnitOfWork:
+    def __init__(self) -> None:
+        self._new: list[Entity] = []
+        self._dirty: list[Entity] = []
+        self._removed: list[Entity] = []
+
+    def register_new(self, entity: Entity) -> None:
+        self._new.append(entity)
+
+    def register_dirty(self, entity: Entity) -> None:
+        if entity not in self._dirty:
+            self._dirty.append(entity)
+
+    def register_removed(self, entity: Entity) -> None:
+        self._removed.append(entity)
+
+    def commit(self, db_session) -> None:
+        for e in self._new:
+            db_session.insert(e)
+        for e in self._dirty:
+            db_session.update(e)
+        for e in self._removed:
+            db_session.delete(e)
+        db_session.flush()
+        self._new.clear()
+        self._dirty.clear()
+        self._removed.clear()
+```
+
+**Key point:** Instead of issuing one SQL statement per change, the Unit of Work batches them and writes everything in one transaction, preventing partial updates and reducing round-trips.
+
+---
+
+### Data Transfer Object (DTO)
+
+**Intent:** A plain dataclass that carries data across layer boundaries with no behaviour.
+
+```python
+from dataclasses import dataclass
+
+
+@dataclass(frozen=True)
+class UserDTO:
+    id: int
+    email: str
+    display_name: str
+
+
+@dataclass(frozen=True)
+class CreateUserDTO:
+    email: str
+    password: str
+    display_name: str
+
+
+# Assembler — converts between domain object and DTO
+class UserAssembler:
+    @staticmethod
+    def to_dto(user) -> UserDTO:
+        return UserDTO(
+            id=user.id,
+            email=user.email,
+            display_name=user.display_name,
+        )
+```
+
+**Key point:** DTOs are frozen and behaviour-free by design — they exist solely to transport data, preventing presentation or persistence concerns from leaking into the domain model.
+
+---
+
+### Value Object (Money)
+
+**Intent:** An immutable frozen dataclass representing a monetary amount with value semantics — two Money instances with the same currency and amount are equal.
+
+```python
+from __future__ import annotations
+from dataclasses import dataclass
+
+
+@dataclass(frozen=True)
+class Money:
+    amount_cents: int
+    currency: str
+
+    def __post_init__(self) -> None:
+        if self.amount_cents < 0:
+            raise ValueError("Amount cannot be negative")
+        if len(self.currency) != 3:
+            raise ValueError("Currency must be a 3-letter ISO code")
+
+    def add(self, other: Money) -> Money:
+        if self.currency != other.currency:
+            raise ValueError("Cannot add different currencies")
+        return Money(self.amount_cents + other.amount_cents, self.currency)
+
+    def multiply(self, factor: float) -> Money:
+        return Money(round(self.amount_cents * factor), self.currency)
+
+    def __str__(self) -> str:
+        return f"{self.amount_cents / 100:.2f} {self.currency}"
+
+
+price = Money(1000, "USD")
+tax   = price.multiply(0.21)
+total = price.add(tax)  # Money(1210, "USD")
+```
+
+**Key point:** `frozen=True` enforces immutability at the interpreter level, and equality is structural (amount + currency), so Money behaves like a true value rather than a mutable entity.
+
+---
+
+### Special Case
+
+**Intent:** A subclass that represents a null or missing domain concept, providing safe default behaviour instead of forcing callers to check for `None`.
+
+```python
+from __future__ import annotations
+from dataclasses import dataclass
+
+
+@dataclass
+class Customer:
+    id: int
+    name: str
+    email: str
+    credit_limit_cents: int
+
+    def is_eligible_for_discount(self) -> bool:
+        return self.credit_limit_cents > 50_000
+
+    def send_welcome_email(self) -> None:
+        print(f"Sending welcome email to {self.email}")
+
+
+class NullCustomer(Customer):
+    def __init__(self) -> None:
+        super().__init__(id=0, name="Guest", email="", credit_limit_cents=0)
+
+    def is_eligible_for_discount(self) -> bool:
+        return False
+
+    def send_welcome_email(self) -> None:
+        pass  # no-op — no customer to email
+
+
+def find_customer(customer_id: int) -> Customer:
+    # ... lookup logic ...
+    return NullCustomer()  # returned when not found
+
+
+customer = find_customer(99)
+customer.send_welcome_email()          # safe — no None check needed
+print(customer.is_eligible_for_discount())  # False
+```
+
+**Key point:** By returning a `NullCustomer` instead of `None`, callers interact with the same interface without any `if customer is not None` guards scattered throughout the codebase.
+
+---
+
+### Gateway
+
+**Intent:** A class that wraps an external API or service behind a clean, domain-focused interface, hiding HTTP details from the rest of the application.
+
+```python
+from dataclasses import dataclass
+from typing import Protocol
+import json
+import urllib.request
+
+
+@dataclass(frozen=True)
+class ExchangeRate:
+    from_currency: str
+    to_currency: str
+    rate: float
+
+
+class CurrencyGateway(Protocol):
+    def get_rate(self, from_currency: str, to_currency: str) -> ExchangeRate: ...
+
+
+class OpenExchangeRateGateway:
+    BASE_URL = "https://api.example.com/rates"
+
+    def __init__(self, api_key: str) -> None:
+        self._api_key = api_key
+
+    def get_rate(self, from_currency: str, to_currency: str) -> ExchangeRate:
+        url = f"{self.BASE_URL}?base={from_currency}&key={self._api_key}"
+        with urllib.request.urlopen(url) as response:
+            data = json.loads(response.read())
+        rate = data["rates"][to_currency]
+        return ExchangeRate(from_currency, to_currency, rate)
+```
+
+**Key point:** The `CurrencyGateway` Protocol lets tests swap in a stub without touching any HTTP code — the gateway isolates the volatility of the external dependency behind a stable interface.
+
+---
+
+### Query Object
+
+**Intent:** An object that encapsulates filter criteria for a collection query, decoupling callers from raw SQL or query-language strings.
+
+```python
+from dataclasses import dataclass, field
+from typing import Any
+
+
+@dataclass
+class ProductQuery:
+    max_price_cents: int | None = None
+    min_price_cents: int | None = None
+    name_contains: str | None = None
+    in_stock_only: bool = False
+
+    def to_sql(self) -> tuple[str, list[Any]]:
+        clauses: list[str] = ["SELECT * FROM products WHERE 1=1"]
+        params: list[Any] = []
+
+        if self.max_price_cents is not None:
+            clauses.append("AND price_cents <= ?")
+            params.append(self.max_price_cents)
+        if self.min_price_cents is not None:
+            clauses.append("AND price_cents >= ?")
+            params.append(self.min_price_cents)
+        if self.name_contains is not None:
+            clauses.append("AND name LIKE ?")
+            params.append(f"%{self.name_contains}%")
+        if self.in_stock_only:
+            clauses.append("AND stock > 0")
+
+        return " ".join(clauses), params
+
+
+# Usage
+query = ProductQuery(max_price_cents=5000, in_stock_only=True)
+sql, params = query.to_sql()
+```
+
+**Key point:** Criteria are first-class objects that can be built, passed around, logged, and tested without ever concatenating raw SQL strings in business logic.
+
+---
+
+### Layer Supertype
+
+**Intent:** A base class for an entire layer that holds shared behaviour — auto-generated IDs, timestamps, equality — so every entity inherits it without repeating the boilerplate.
+
+```python
+from __future__ import annotations
+import uuid
+from dataclasses import dataclass, field
+from datetime import datetime, timezone
+
+
+@dataclass
+class Entity:
+    id: str = field(default_factory=lambda: str(uuid.uuid4()))
+    created_at: datetime = field(default_factory=lambda: datetime.now(timezone.utc))
+    updated_at: datetime = field(default_factory=lambda: datetime.now(timezone.utc))
+
+    def touch(self) -> None:
+        self.updated_at = datetime.now(timezone.utc)
+
+    def __eq__(self, other: object) -> bool:
+        if not isinstance(other, Entity):
+            return NotImplemented
+        return self.id == other.id
+
+    def __hash__(self) -> int:
+        return hash(self.id)
+
+
+@dataclass
+class Product(Entity):
+    name: str = ""
+    price_cents: int = 0
+
+
+@dataclass
+class Customer(Entity):
+    email: str = ""
+```
+
+**Key point:** Identity (`id`), audit fields (`created_at`, `updated_at`), and equality semantics are defined exactly once in `Entity` — domain classes inherit the contract rather than duplicating it.
