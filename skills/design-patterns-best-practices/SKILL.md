@@ -66,6 +66,34 @@ Use when behavior needs to be layered without changing the underlying contract.
 
 Use when leaf and group objects should answer the same messages.
 
+### Observer
+
+Use when one object's state change should trigger reactions in other objects without the source knowing who is listening.
+
+### Command
+
+Use when you need to decouple the sender of a request from its executor, or when requests need to be queued, logged, or undone.
+
+### Template Method
+
+Use when multiple classes share the same algorithm skeleton but differ in specific steps — and the skeleton should not be changed by subclasses.
+
+### Builder
+
+Use when constructing a complex object requires many steps, optional parts, or a specific construction order.
+
+### Proxy
+
+Use when you need a surrogate for another object — to defer creation (virtual), control access (protection), or represent a remote resource (remote).
+
+### Facade
+
+Use when a complex subsystem needs a simplified interface for callers who don't need its full detail.
+
+### Repository
+
+Use when you want to decouple business logic from data access and treat a collection of objects as if it were in memory.
+
 ## Warning Signs
 
 - The pattern vocabulary dominates the domain language.
@@ -79,6 +107,11 @@ Use when leaf and group objects should answer the same messages.
 - Read `references/pattern-selection-guide.md` for pattern-to-problem mapping.
 - Read `references/composition-vs-inheritance.md` for structural trade-offs.
 - Read `references/language-examples.md` for small examples.
+- Read `references/behavioral-patterns.md` for Observer, Command, Template Method, Chain of Responsibility, Iterator, and Mediator.
+- Read `references/creational-patterns.md` for Builder, Abstract Factory, Factory Method, and Singleton trade-offs.
+- Read `references/structural-patterns.md` for Proxy, Facade, Bridge, and Flyweight — including the Facade vs Adapter distinction.
+- Read `references/enterprise-patterns.md` for Repository, Service Layer, Unit of Work, Data Mapper vs Active Record, and the Result pattern.
+- Read `references/patterns-in-practice.md` for practical heuristics on refactoring toward patterns, Observer lessons, Command Bus, Result pattern, and DI container internals.
 
 ## Related Skills
 
