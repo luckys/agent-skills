@@ -1301,3 +1301,170 @@ public final class Account extends PersistentEntity {
 ```
 
 **Key point:** Identity-based equality, audit timestamps, and the `touch()` lifecycle hook are defined once in the supertype — every entity in the layer inherits them without repetition.
+
+---
+
+## Remaining GoF Patterns
+
+### Adapter
+
+**Intent:** Wrap a third-party or legacy interface behind the interface your code expects.
+
+```java
+public interface PaymentGateway {
+    void charge(String customerId, int amountCents);
+}
+
+// External SDK we cannot modify
+public final class StripeClient {
+    public void createCharge(String stripeCustomer, double amountDollars, String currency) {
+        System.out.printf("[Stripe] Charging %s $%.2f%n", stripeCustomer, amountDollars);
+    }
+}
+
+public final class StripePaymentAdapter implements PaymentGateway {
+    private final StripeClient stripe;
+
+    public StripePaymentAdapter(StripeClient stripe) { this.stripe = stripe; }
+
+    public void charge(String customerId, int amountCents) {
+        double dollars = amountCents / 100.0;
+        stripe.createCharge(customerId, dollars, "USD");
+    }
+}
+
+// Usage — domain code never imports StripeClient
+PaymentGateway gateway = new StripePaymentAdapter(new StripeClient());
+gateway.charge("cus_abc123", 4999);
+```
+
+**Key point:** The adapter translates the local `PaymentGateway` contract into Stripe SDK calls, so domain code is never coupled to the third-party type.
+
+---
+
+### Visitor
+
+**Intent:** Separate an algorithm from the object structure it operates on.
+
+```java
+public interface DocumentElement {
+    void accept(DocumentVisitor visitor);
+}
+
+public record Heading(String text) implements DocumentElement {
+    public void accept(DocumentVisitor visitor) { visitor.visitHeading(this); }
+}
+
+public record Paragraph(String text) implements DocumentElement {
+    public void accept(DocumentVisitor visitor) { visitor.visitParagraph(this); }
+}
+
+public interface DocumentVisitor {
+    void visitHeading(Heading heading);
+    void visitParagraph(Paragraph paragraph);
+}
+
+public final class WordCountVisitor implements DocumentVisitor {
+    private int count = 0;
+    public void visitHeading(Heading h)     { count += h.text().split("\\s+").length; }
+    public void visitParagraph(Paragraph p) { count += p.text().split("\\s+").length; }
+    public int getCount() { return count; }
+}
+
+public final class HtmlRenderVisitor implements DocumentVisitor {
+    private final StringBuilder html = new StringBuilder();
+    public void visitHeading(Heading h)     { html.append("<h1>").append(h.text()).append("</h1>\n"); }
+    public void visitParagraph(Paragraph p) { html.append("<p>").append(p.text()).append("</p>\n"); }
+    public String getHtml() { return html.toString(); }
+}
+```
+
+**Key point:** New operations (word count, HTML render) are added as new visitor classes without touching `Heading` or `Paragraph`.
+
+---
+
+### Memento
+
+**Intent:** Capture and restore object state without exposing internals.
+
+```java
+public final class TextEditor {
+    private String text;
+
+    public TextEditor(String text) { this.text = text; }
+
+    public void type(String addition) { this.text += addition; }
+    public String getText() { return text; }
+
+    public record Memento(String savedText) {}
+
+    public Memento save()             { return new Memento(text); }
+    public void restore(Memento m)    { this.text = m.savedText(); }
+}
+
+public final class History {
+    private final Deque<TextEditor.Memento> stack = new ArrayDeque<>();
+
+    public void push(TextEditor.Memento m) { stack.push(m); }
+
+    public TextEditor.Memento pop() {
+        if (stack.isEmpty()) throw new IllegalStateException("Nothing to undo");
+        return stack.pop();
+    }
+}
+
+// Usage
+TextEditor editor = new TextEditor("Hello");
+History history = new History();
+history.push(editor.save());
+editor.type(", world");
+history.push(editor.save());
+editor.type("!!!");
+editor.restore(history.pop()); // back to "Hello, world"
+editor.restore(history.pop()); // back to "Hello"
+```
+
+**Key point:** `Memento` is a `record` nested inside `TextEditor`, so only the editor can construct one — internal state never leaks to the `History` caretaker.
+
+---
+
+### Prototype
+
+**Intent:** Clone a configured object instead of constructing it from scratch.
+
+```java
+public final class DocumentTemplate implements Cloneable {
+    private String title;
+    private String header;
+    private String footer;
+    private List<String> sections;
+
+    public DocumentTemplate(String title, String header, String footer, List<String> sections) {
+        this.title    = title;
+        this.header   = header;
+        this.footer   = footer;
+        this.sections = new ArrayList<>(sections);
+    }
+
+    public void setTitle(String title)       { this.title = title; }
+    public void addSection(String section)   { this.sections.add(section); }
+    public String getTitle()                 { return title; }
+
+    @Override
+    public DocumentTemplate clone() {
+        return new DocumentTemplate(title, header, footer, sections);
+    }
+
+    @Override public String toString() {
+        return header + "\n" + title + "\n" + String.join("\n", sections) + "\n" + footer;
+    }
+}
+
+// Usage
+DocumentTemplate base = new DocumentTemplate("Untitled", "ACME Corp", "Confidential", List.of("Introduction"));
+DocumentTemplate report = base.clone();
+report.setTitle("Q1 Sales Report");
+report.addSection("Summary");
+```
+
+**Key point:** `clone()` produces a fully configured copy with independent state — callers avoid repeating header/footer setup for every new document.

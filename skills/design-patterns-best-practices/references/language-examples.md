@@ -13,7 +13,7 @@ Use this file as an index to the language-specific example references.
 
 ## Shared Concept Set
 
-Each language file contains examples for the same 19 patterns:
+Each language file contains examples for the same 23 patterns:
 
 **Behavioral**
 - Strategy — isolating algorithm or policy variation behind a role
@@ -24,12 +24,15 @@ Each language file contains examples for the same 19 patterns:
 - Chain of Responsibility — passing a request along a handler chain
 - Iterator — accessing collection elements without exposing internal structure
 - Mediator — centralizing communication so objects don't reference each other directly
+- Visitor — separating operations from a stable object structure; new ops without modifying elements
+- Memento — capturing and restoring object state without violating encapsulation (undo/rollback)
 
 **Creational**
 - Factory Method — construction deferred to subclasses, callers depend on a shared interface
 - Builder — step-by-step construction with a fluent interface
 - Abstract Factory — creating families of related objects without naming concrete classes
 - Singleton — single instance (including trade-off note on global state and testing difficulty)
+- Prototype — cloning a configured object instead of constructing from scratch
 
 **Structural**
 - Decorator — layered behavior composed at construction time without subclassing
@@ -38,6 +41,7 @@ Each language file contains examples for the same 19 patterns:
 - Bridge — decoupling abstraction from implementation across two independent axes
 - Flyweight — sharing intrinsic state across many fine-grained objects
 - Composite — treating leaf and group objects uniformly through a shared interface
+- Adapter — translating an incompatible interface into the one the client expects
 
 **Other**
 - Result Pattern — typed success/failure return instead of exceptions

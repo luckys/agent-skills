@@ -1273,3 +1273,179 @@ class Product extends BaseEntity {
 ```
 
 **Key point:** ID generation, timestamp management, and identity comparison are defined once in the supertype — concrete entity classes stay focused on their own domain behavior.
+
+---
+
+## Remaining GoF Patterns
+
+### Adapter
+
+**Intent:** Wrap a third-party or legacy interface behind the interface your code expects.
+
+```typescript
+interface PaymentGateway {
+  charge(amountInCents: number, token: string): Promise<{ transactionId: string }>
+}
+
+// External SDK — interface we cannot change
+class StripeSDK {
+  createCharge(opts: { amount: number; currency: string; source: string }) {
+    return Promise.resolve({ id: `ch_${Math.random().toString(36).slice(2)}` })
+  }
+}
+
+class StripeAdapter implements PaymentGateway {
+  constructor(private readonly stripe: StripeSDK) {}
+
+  async charge(amountInCents: number, token: string) {
+    const result = await this.stripe.createCharge({
+      amount: amountInCents,
+      currency: 'usd',
+      source: token,
+    })
+    return { transactionId: result.id }
+  }
+}
+
+// Domain code depends only on PaymentGateway — never on StripeSDK directly.
+const gateway: PaymentGateway = new StripeAdapter(new StripeSDK())
+```
+
+**Key point:** The adapter translates the external SDK's vocabulary into the local interface, so the rest of the codebase never imports or knows about the third-party SDK.
+
+---
+
+### Visitor
+
+**Intent:** Separate an algorithm from the object structure it operates on, allowing new operations without changing the element classes.
+
+```typescript
+interface DocumentElement {
+  accept(visitor: DocumentVisitor): void
+}
+
+interface DocumentVisitor {
+  visitHeading(el: Heading): void
+  visitParagraph(el: Paragraph): void
+}
+
+class Heading implements DocumentElement {
+  constructor(readonly text: string, readonly level: number) {}
+  accept(visitor: DocumentVisitor) { visitor.visitHeading(this) }
+}
+
+class Paragraph implements DocumentElement {
+  constructor(readonly text: string) {}
+  accept(visitor: DocumentVisitor) { visitor.visitParagraph(this) }
+}
+
+class WordCountVisitor implements DocumentVisitor {
+  count = 0
+  visitHeading(el: Heading)   { this.count += el.text.split(/\s+/).length }
+  visitParagraph(el: Paragraph) { this.count += el.text.split(/\s+/).length }
+}
+
+class HtmlRenderVisitor implements DocumentVisitor {
+  output = ''
+  visitHeading(el: Heading)     { this.output += `<h${el.level}>${el.text}</h${el.level}>\n` }
+  visitParagraph(el: Paragraph) { this.output += `<p>${el.text}</p>\n` }
+}
+
+const doc: DocumentElement[] = [new Heading('Hello', 1), new Paragraph('World tour')]
+const wc = new WordCountVisitor()
+doc.forEach(el => el.accept(wc))
+console.log(wc.count) // 3
+```
+
+**Key point:** Adding a new operation (e.g., a markdown renderer) means adding a new visitor class — `Heading` and `Paragraph` are never touched.
+
+---
+
+### Memento
+
+**Intent:** Capture and restore an object's internal state without exposing its internals.
+
+```typescript
+class Memento {
+  constructor(readonly state: string) {}
+}
+
+class TextEditor {
+  private content = ''
+
+  type(text: string): void { this.content += text }
+  getContent(): string     { return this.content }
+
+  save(): Memento          { return new Memento(this.content) }
+  restore(m: Memento): void { this.content = m.state }
+}
+
+class History {
+  private readonly stack: Memento[] = []
+
+  push(m: Memento): void   { this.stack.push(m) }
+  pop(): Memento | undefined { return this.stack.pop() }
+}
+
+const editor  = new TextEditor()
+const history = new History()
+
+editor.type('Hello')
+history.push(editor.save())
+
+editor.type(', World')
+history.push(editor.save())
+
+editor.type('!!!')
+console.log(editor.getContent()) // Hello, World!!!
+
+const previous = history.pop()
+if (previous) editor.restore(previous)
+console.log(editor.getContent()) // Hello, World
+```
+
+**Key point:** `Memento` is opaque to the `History` caretaker — it stores state without understanding it, preserving encapsulation of `TextEditor`.
+
+---
+
+### Prototype
+
+**Intent:** Clone a fully configured object instead of constructing one from scratch, when setup is expensive or complex.
+
+```typescript
+interface Cloneable<T> {
+  clone(): T
+}
+
+class DocumentTemplate implements Cloneable<DocumentTemplate> {
+  constructor(
+    public title: string,
+    public sections: string[],
+    public styles: Record<string, string>,
+  ) {}
+
+  clone(): DocumentTemplate {
+    return new DocumentTemplate(
+      this.title,
+      [...this.sections],              // deep-copy array
+      { ...this.styles },              // deep-copy styles map
+    )
+  }
+}
+
+const reportTemplate = new DocumentTemplate(
+  'Quarterly Report',
+  ['Executive Summary', 'Financials', 'Outlook'],
+  { font: 'Arial', fontSize: '12pt', margin: '1in' },
+)
+
+const q1Report = reportTemplate.clone()
+q1Report.title = 'Q1 2026 Report'
+q1Report.sections.push('Appendix')
+
+// reportTemplate.sections is unchanged — clone owns its own copy
+console.log(reportTemplate.sections.length) // 3
+console.log(q1Report.sections.length)        // 4
+```
+
+**Key point:** Each clone is an independent deep copy — mutating one report does not affect the template or sibling reports cloned from it.

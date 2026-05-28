@@ -103,3 +103,26 @@ A resource that is inherently singular — a logger, a connection pool, a hardwa
 - The class holds no state and is used only for its methods — a module-level function or a stateless service passed by injection is simpler.
 
 **Practical heuristic:** Prefer instantiating once at the application's composition root and injecting the single instance wherever it is needed. Reserve the Singleton pattern for cases where the runtime environment itself enforces uniqueness, or where there is no dependency-injection infrastructure at all.
+
+---
+
+## Prototype
+
+**Intent:** Create new objects by cloning an existing object (the prototype) rather than building from scratch.
+
+**How it works:** A Prototype interface declares a `clone()` method. Concrete implementations copy their own state into a new instance and return it. The client asks the prototype to clone itself rather than calling constructors with configuration arguments.
+
+**When to use:**
+- Object initialization is expensive (deep setup, DB read, external API call) and you want to reuse a configured instance.
+- You need many similar objects that differ only in a few fields — clone the base, then modify.
+- The exact class to instantiate is determined at runtime and shouldn't be hardcoded.
+
+**When NOT to use:**
+- Objects have circular references — deep cloning becomes complex and error-prone.
+- Cloning semantics are unclear (shared vs. copied references) — shallow clones cause aliasing bugs.
+
+**Key trade-off:** Avoids expensive re-initialization at the cost of clone complexity when internal state has deep or shared references.
+
+**Related patterns:** Abstract Factory (alternative for creating families of objects), Singleton (only one instance — the opposite of Prototype), Memento (also captures object state, but for restoration not creation).
+
+**Practical heuristic:** If you find yourself writing `new Obj(existingObj.field1, existingObj.field2, ...)`, add a `clone()` method to the class instead — the object knows which fields must be copied vs. reset.

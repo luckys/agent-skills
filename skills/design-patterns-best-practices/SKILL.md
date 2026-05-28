@@ -107,11 +107,13 @@ Use when you want to decouple business logic from data access and treat a collec
 - Read `references/pattern-selection-guide.md` for pattern-to-problem mapping.
 - Read `references/composition-vs-inheritance.md` for structural trade-offs.
 - Read `references/language-examples.md` for an index of language-specific example files (TypeScript, Java, Python, C#, Ruby, PHP).
-- Read `references/behavioral-patterns.md` for Observer, Command, Template Method, Chain of Responsibility, Iterator, and Mediator.
-- Read `references/creational-patterns.md` for Builder, Abstract Factory, Factory Method, and Singleton trade-offs.
-- Read `references/structural-patterns.md` for Proxy, Facade, Bridge, and Flyweight — including the Facade vs Adapter distinction.
+- Read `references/behavioral-patterns.md` for Observer, Command, Template Method, Chain of Responsibility, Iterator, Mediator, Visitor, and Memento.
+- Read `references/creational-patterns.md` for Builder, Abstract Factory, Factory Method, Singleton, and Prototype trade-offs.
+- Read `references/structural-patterns.md` for Proxy, Facade, Bridge, Flyweight, and Adapter — including the Facade vs Adapter distinction.
 - Read `references/enterprise-patterns.md` for all ~51 PoEAA patterns: Domain Logic (Transaction Script, Domain Model, Table Module, Service Layer), Data Source (Table Data Gateway, Row Data Gateway, Active Record, Data Mapper), ORM Behavioral (Unit of Work, Identity Map, Lazy Load), ORM Structural (Identity Field, Foreign Key Mapping, Association Table Mapping, Dependent Mapping, Embedded Value, Serialized LOB, Single/Class/Concrete Table Inheritance, Inheritance Mappers, Metadata Mapping, Query Object, Repository), Web Presentation (MVC, Page Controller, Front Controller, Template View, Transform View, Two Step View, Application Controller), Distribution (Remote Facade, DTO), Concurrency (Optimistic/Pessimistic/Coarse-Grained/Implicit Lock), Session State (Client/Server/Database Session State), and Base Patterns (Gateway, Mapper, Layer Supertype, Separated Interface, Registry, Value Object, Money, Special Case, Plugin, Service Stub, Record Set).
 - Read `references/patterns-in-practice.md` for practical heuristics on refactoring toward patterns, Observer lessons, Command Bus, Result pattern, and DI container internals.
+- Read `references/implementation-patterns.md` for Kent Beck's micro-level code patterns: naming, composed methods, guard clauses, value objects, lazy/eager initialization, collection accessors, and method objects.
+- Read `references/clean-architecture.md` for Clean Architecture layers (Entities, Use Cases, Interface Adapters, Frameworks), the Dependency Rule, Ports & Adapters, Skinny Controllers, and SOLID as architecture enablers.
 
 ## Related Skills
 

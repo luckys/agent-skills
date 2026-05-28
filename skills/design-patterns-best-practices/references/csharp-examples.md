@@ -1331,3 +1331,192 @@ public sealed class Product : Entity
 ```
 
 **Key point:** Every entity automatically gains identity-based equality and audit timestamps without repeating that code — the Layer Supertype is the single place to add cross-cutting entity concerns like soft-delete flags or domain event collections.
+
+---
+
+## Remaining GoF Patterns
+
+### Adapter
+
+**Intent:** Wrap a third-party or legacy interface behind the interface your code expects.
+
+```csharp
+// External SDK — cannot modify
+public sealed class StripeClient
+{
+    public bool Charge(string token, long amountInCents) =>
+        Console.WriteLine($"Stripe: charging {amountInCents}¢ on {token}") is null ? true : true;
+}
+
+// Interface your application depends on
+public interface IPaymentGateway
+{
+    bool Pay(string token, decimal amount);
+}
+
+// Adapter bridges the two worlds
+public sealed class StripePaymentAdapter : IPaymentGateway
+{
+    private readonly StripeClient client;
+
+    public StripePaymentAdapter(StripeClient client) => this.client = client;
+
+    public bool Pay(string token, decimal amount)
+    {
+        var cents = (long)Math.Round(amount * 100);
+        return client.Charge(token, cents);
+    }
+}
+
+// Usage — application only knows IPaymentGateway
+IPaymentGateway gateway = new StripePaymentAdapter(new StripeClient());
+gateway.Pay("tok_visa", 49.99m);
+```
+
+**Key point:** The adapter owns the translation between two incompatible interfaces so the rest of the codebase stays insulated from the external SDK's types and conventions.
+
+---
+
+### Visitor
+
+**Intent:** Separate an algorithm from the object structure it operates on.
+
+```csharp
+public interface IDocumentVisitor
+{
+    void Visit(Heading heading);
+    void Visit(Paragraph paragraph);
+}
+
+public interface IDocumentElement { void Accept(IDocumentVisitor visitor); }
+
+public sealed class Heading(string text) : IDocumentElement
+{
+    public string Text => text;
+    public void Accept(IDocumentVisitor visitor) => visitor.Visit(this);
+}
+
+public sealed class Paragraph(string text) : IDocumentElement
+{
+    public string Text => text;
+    public void Accept(IDocumentVisitor visitor) => visitor.Visit(this);
+}
+
+public sealed class WordCountVisitor : IDocumentVisitor
+{
+    public int Count { get; private set; }
+    public void Visit(Heading h)   => Count += h.Text.Split(' ').Length;
+    public void Visit(Paragraph p) => Count += p.Text.Split(' ').Length;
+}
+
+public sealed class HtmlRenderVisitor : IDocumentVisitor
+{
+    public void Visit(Heading h)   => Console.WriteLine($"<h1>{h.Text}</h1>");
+    public void Visit(Paragraph p) => Console.WriteLine($"<p>{p.Text}</p>");
+}
+
+// Usage
+var doc = new IDocumentElement[] { new Heading("Hello"), new Paragraph("World of patterns.") };
+var counter = new WordCountVisitor();
+foreach (var el in doc) el.Accept(counter);
+Console.WriteLine($"Words: {counter.Count}"); // Words: 4
+```
+
+**Key point:** New operations (visitors) are added without touching the element classes; the double-dispatch via `Accept` ensures the right overload is called at runtime.
+
+---
+
+### Memento
+
+**Intent:** Capture and restore object state without exposing internals.
+
+```csharp
+public sealed record TextMemento(string Text);   // caretaker sees only this opaque record
+
+public sealed class TextEditor
+{
+    public string Text { get; private set; } = string.Empty;
+
+    public void Type(string input) => Text += input;
+
+    public TextMemento Save() => new(Text);
+
+    public void Restore(TextMemento memento) => Text = memento.Text;
+}
+
+public sealed class History
+{
+    private readonly Stack<TextMemento> snapshots = new();
+    private readonly TextEditor editor;
+
+    public History(TextEditor editor) => this.editor = editor;
+
+    public void Snapshot() => snapshots.Push(editor.Save());
+
+    public void Undo()
+    {
+        if (snapshots.TryPop(out var memento))
+            editor.Restore(memento);
+    }
+}
+
+// Usage
+var editor  = new TextEditor();
+var history = new History(editor);
+
+editor.Type("Hello");   history.Snapshot();
+editor.Type(", world"); history.Snapshot();
+editor.Type("!!!");
+
+history.Undo();
+Console.WriteLine(editor.Text); // Hello, world
+history.Undo();
+Console.WriteLine(editor.Text); // Hello
+```
+
+**Key point:** `TextMemento` is an opaque record — `History` stores snapshots without knowing what fields the editor contains, so internals can change without touching the caretaker.
+
+---
+
+### Prototype
+
+**Intent:** Clone a configured object instead of constructing it from scratch.
+
+```csharp
+public sealed class DocumentTemplate
+{
+    public string Title      { get; set; } = string.Empty;
+    public string Header     { get; set; } = string.Empty;
+    public string Footer     { get; set; } = string.Empty;
+    public List<string> Tags { get; set; } = new();
+
+    // Deep clone — Tags list is duplicated, not shared
+    public DocumentTemplate Clone() =>
+        new()
+        {
+            Title  = Title,
+            Header = Header,
+            Footer = Footer,
+            Tags   = new List<string>(Tags),
+        };
+}
+
+// Usage
+var invoice = new DocumentTemplate
+{
+    Title  = "Invoice",
+    Header = "Acme Corp.",
+    Footer = "Thank you for your business.",
+    Tags   = new() { "billing", "finance" },
+};
+
+var draft = invoice.Clone();
+draft.Title = "Draft Invoice";
+draft.Tags.Add("draft");
+
+Console.WriteLine(invoice.Title);      // Invoice     — original unchanged
+Console.WriteLine(invoice.Tags.Count); // 2           — Tags list is independent
+Console.WriteLine(draft.Title);        // Draft Invoice
+```
+
+**Key point:** `Clone()` performs a deep copy so the new instance shares no mutable state with the original, making it safe to customize the clone without affecting the template.

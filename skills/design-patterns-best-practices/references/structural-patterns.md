@@ -142,3 +142,26 @@ You are creating a very large number of objects that share significant chunks of
 - The extrinsic state is so large or complex that passing it on every method call is more expensive than just storing it per-object.
 
 **Practical heuristic:** Split state on paper first. List every field and classify it as intrinsic (same for a category of objects, never mutated) or extrinsic (varies per instance, passed at runtime). If the intrinsic fields are small or there are few unique combinations, Flyweight will not help. Only proceed if the intrinsic portion is large and the number of unique combinations is much smaller than the total object count.
+
+---
+
+## Adapter
+
+**Intent:** Convert the interface of a class into the interface the client expects — let classes work together that otherwise couldn't due to incompatible interfaces.
+
+**How it works:** The Adapter wraps an existing object (the Adaptee) and exposes a target interface. The client calls the target interface; the Adapter translates each call to the Adaptee's corresponding method. Can be implemented as an object adapter (composition) or class adapter (inheritance).
+
+**When to use:**
+- You want to use an existing class but its interface doesn't match what the code expects.
+- You need to integrate a third-party library without spreading knowledge of its interface throughout your codebase.
+- You're building a layer between your domain and an external system (file system, HTTP client, payment gateway).
+
+**When NOT to use:**
+- The interfaces are only slightly different — a thin wrapper or method rename is enough.
+- You control both sides; change the source interface directly instead.
+
+**Key trade-off:** Adds a translation layer that can hide type mismatches and make debugging harder when the Adaptee changes.
+
+**Related patterns:** Facade (simplifies, doesn't translate), Proxy (same interface, different behavior), Decorator (same interface, adds behavior).
+
+**Practical heuristic:** If you find yourself writing `thirdPartyClient.doSomething(mapper.from(ourThing))` in multiple places, extract an Adapter that hides both the third-party interface and the mapping.

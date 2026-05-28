@@ -1260,3 +1260,210 @@ end
 ```
 
 **Key point:** Shared cross-cutting concerns (identity, timestamps, equality semantics) live in one place — concrete entities inherit them without repeating boilerplate, and changes to the policy propagate automatically across the entire layer.
+
+---
+
+## Remaining GoF Patterns
+
+### Adapter
+
+**Intent:** Wrap a third-party or legacy interface behind the duck-type interface your code expects.
+
+```ruby
+# The interface our code depends on
+module PaymentGateway
+  def charge(amount_cents:, currency:, token:)
+    raise NotImplementedError
+  end
+end
+
+# A hypothetical external gem with its own API shape
+class StripeGem
+  def create_charge(opts)
+    puts "Stripe: charging #{opts[:amount]} #{opts[:currency]} with token #{opts[:source]}"
+    { id: "ch_123", status: "succeeded" }
+  end
+end
+
+class StripeAdapter
+  include PaymentGateway
+
+  def initialize(stripe_client = StripeGem.new)
+    @client = stripe_client
+  end
+
+  def charge(amount_cents:, currency:, token:)
+    result = @client.create_charge(amount: amount_cents, currency: currency, source: token)
+    raise "Charge failed" unless result[:status] == "succeeded"
+    { charge_id: result[:id], amount_cents: amount_cents }
+  end
+end
+
+gateway = StripeAdapter.new
+gateway.charge(amount_cents: 2000, currency: "USD", token: "tok_visa")
+```
+
+**Key point:** The adapter is the only class that knows the gem's API — swapping providers means writing a new adapter, not touching any caller.
+
+---
+
+### Visitor
+
+**Intent:** Separate an algorithm from the object structure it operates on, letting new operations be added without modifying the elements.
+
+```ruby
+Heading   = Struct.new(:level, :text)
+Paragraph = Struct.new(:text)
+
+class WordCountVisitor
+  attr_reader :count
+
+  def initialize
+    @count = 0
+  end
+
+  def visit_heading(node)
+    @count += node.text.split.size
+  end
+
+  def visit_paragraph(node)
+    @count += node.text.split.size
+  end
+end
+
+class HtmlRenderVisitor
+  def visit_heading(node)
+    "<h#{node.level}>#{node.text}</h#{node.level}>"
+  end
+
+  def visit_paragraph(node)
+    "<p>#{node.text}</p>"
+  end
+end
+
+module Visitable
+  def accept(visitor)
+    visitor.public_send(:"visit_#{self.class.name.downcase}", self)
+  end
+end
+
+Heading.include(Visitable)
+Paragraph.include(Visitable)
+
+doc = [Heading.new(1, "Hello World"), Paragraph.new("Ruby is expressive and fun.")]
+
+counter = WordCountVisitor.new
+doc.each { |node| node.accept(counter) }
+puts "Words: #{counter.count}"
+
+renderer = HtmlRenderVisitor.new
+doc.each { |node| puts node.accept(renderer) }
+```
+
+**Key point:** Adding a new operation (e.g., `PlainTextVisitor`) is an additive change — the `Heading` and `Paragraph` structs are never modified.
+
+---
+
+### Memento
+
+**Intent:** Capture and restore an object's internal state without exposing its implementation details.
+
+```ruby
+Memento = Struct.new(:content)
+
+class TextEditor
+  def initialize
+    @content = ""
+  end
+
+  def type(text)
+    @content += text
+  end
+
+  def save
+    Memento.new(@content.dup)
+  end
+
+  def restore(memento)
+    @content = memento.content
+  end
+
+  def to_s = @content
+end
+
+class History
+  def initialize
+    @stack = []
+  end
+
+  def push(memento) = @stack.push(memento)
+  def pop           = @stack.pop
+end
+
+editor  = TextEditor.new
+history = History.new
+
+editor.type("Hello")
+history.push(editor.save)
+
+editor.type(", World")
+history.push(editor.save)
+
+editor.type("!!!")
+puts editor          # Hello, World!!!
+
+editor.restore(history.pop)
+puts editor          # Hello, World
+
+editor.restore(history.pop)
+puts editor          # Hello
+```
+
+**Key point:** The `History` caretaker never inspects the `Memento` contents — only `TextEditor` knows how to interpret its own saved state.
+
+---
+
+### Prototype
+
+**Intent:** Clone a fully configured object instead of constructing it from scratch, preserving all setup in the copy.
+
+```ruby
+class DocumentTemplate
+  attr_accessor :title, :font, :margins, :sections
+
+  def initialize(title:, font: "Arial", margins: 20)
+    @title    = title
+    @font     = font
+    @margins  = margins
+    @sections = []
+  end
+
+  def add_section(name)
+    @sections << name
+    self
+  end
+
+  # Shallow clone via dup; sections array is independently duplicated
+  def deep_clone
+    copy          = dup
+    copy.sections = @sections.dup
+    copy
+  end
+
+  def to_s
+    "#{@title} [#{@font}, #{@margins}mm] — #{@sections.join(", ")}"
+  end
+end
+
+base = DocumentTemplate.new(title: "Report", font: "Georgia", margins: 25)
+base.add_section("Introduction").add_section("Summary")
+
+invoice   = base.deep_clone.tap { |d| d.title = "Invoice";   d.sections << "Billing" }
+proposal  = base.deep_clone.tap { |d| d.title = "Proposal";  d.sections << "Pricing" }
+
+puts base      # Report [Georgia, 25mm] — Introduction, Summary
+puts invoice   # Invoice [Georgia, 25mm] — Introduction, Summary, Billing
+puts proposal  # Proposal [Georgia, 25mm] — Introduction, Summary, Pricing
+```
+
+**Key point:** `deep_clone` duplicates only the mutable nested structures — shared immutable values (font, margins) are safely reused, keeping copies independent without a full deep copy.

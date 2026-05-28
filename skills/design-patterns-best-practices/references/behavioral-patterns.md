@@ -127,3 +127,49 @@ A set of collaborating objects (UI components, service classes, chat participant
 - You use Mediator to avoid injecting one dependency into a class, when dependency injection would communicate intent more clearly.
 
 **Practical heuristic:** Colleagues should know only the mediator interface — never each other. Keep the mediator's `notify(sender, event, payload?)` logic as a dispatcher: it routes events to the correct colleagues but does not contain business logic itself. If the mediator's `notify` method grows beyond a simple event switch, extract the business rules into the colleagues or domain services and have the mediator call them.
+
+---
+
+## Visitor
+
+**Intent:** Separate an algorithm from the object structure it operates on — let you add new operations to existing object types without modifying them.
+
+**How it works:** Define a Visitor interface with a `visit` method for each concrete element type. Each element class implements `accept(visitor)` which calls `visitor.visit(this)`. To add a new operation, add a new Visitor implementation without touching the element classes.
+
+**When to use:**
+- You have a stable object hierarchy (rarely adds new types) but need to add new operations often.
+- You need to perform unrelated operations on an object structure and want to keep them separate from the elements.
+- Working with ASTs, DOM trees, IR nodes, or similar structures where traversal operations multiply.
+
+**When NOT to use:**
+- The object hierarchy changes often — adding a new element type forces changes to every Visitor.
+- Operations are naturally part of the element's responsibility (behavior belongs with the object).
+
+**Key trade-off:** Centralizes operations (easy to add operations) but breaks encapsulation (Visitor needs access to element internals) and makes hierarchy extension painful.
+
+**Related patterns:** Composite (Visitor often traverses Composite trees), Iterator (alternative for uniform traversal), Strategy (alternative when operations vary by algorithm, not structure).
+
+**Practical heuristic:** Reach for Visitor when you see a switch/instanceof chain on element types repeated across multiple independent operations — it inverts the dependency so each operation lives in one place.
+
+---
+
+## Memento
+
+**Intent:** Capture and externalize an object's internal state so it can be restored later, without violating encapsulation.
+
+**How it works:** The Originator creates a Memento containing a snapshot of its current state. The Caretaker stores the Memento but never inspects its contents. When rollback is needed, the Originator restores itself from the Memento. The Memento's internal state is only accessible to the Originator.
+
+**When to use:**
+- You need undo/redo functionality.
+- You need to snapshot state before a risky operation to allow rollback.
+- You want to restore an object to a known checkpoint without exposing its internals.
+
+**When NOT to use:**
+- The state is large and snapshots are expensive — consider incremental diff-based approaches.
+- The object has many references to external resources that can't be meaningfully snapshotted.
+
+**Key trade-off:** Preserves encapsulation of internal state at the cost of memory — each snapshot duplicates state.
+
+**Related patterns:** Command (Memento often stores the state Command needs to undo), Prototype (alternative for cloning state), Iterator (can use Memento to save traversal position).
+
+**Practical heuristic:** If your undo stack stores raw field values extracted from an object, replace it with Mementos — the object knows how to snapshot and restore itself better than any external code does.

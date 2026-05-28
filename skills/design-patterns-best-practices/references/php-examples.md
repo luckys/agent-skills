@@ -1471,3 +1471,206 @@ final class Product extends Entity
 ```
 
 **Key point:** Identity generation, timestamp management, and equality by ID are written once in `Entity` — every domain class that extends it gets this infrastructure for free without any duplication.
+
+---
+
+## Remaining GoF Patterns
+
+### Adapter
+
+**Intent:** Wrap a third-party or legacy interface behind the interface your code expects.
+
+```php
+interface PaymentGatewayInterface
+{
+    public function charge(int $amountCents, string $currency): string;
+}
+
+// Third-party SDK we cannot modify
+final class StripeClient
+{
+    public function createCharge(array $params): array
+    {
+        // Stripe-specific call
+        return ['id' => 'ch_abc123', 'status' => 'succeeded'];
+    }
+}
+
+final class StripeGatewayAdapter implements PaymentGatewayInterface
+{
+    public function __construct(private readonly StripeClient $stripe) {}
+
+    public function charge(int $amountCents, string $currency): string
+    {
+        $result = $this->stripe->createCharge([
+            'amount'   => $amountCents,
+            'currency' => strtolower($currency),
+        ]);
+        return $result['id'];
+    }
+}
+
+// Usage — domain code depends only on PaymentGatewayInterface
+function processPayment(PaymentGatewayInterface $gateway): void
+{
+    $transactionId = $gateway->charge(4999, 'USD');
+    echo "Charged: {$transactionId}\n";
+}
+```
+
+**Key point:** The adapter translates the external SDK's vocabulary into your domain interface so application code never imports Stripe types directly.
+
+---
+
+### Visitor
+
+**Intent:** Separate an algorithm from the object structure it operates on.
+
+```php
+interface DocumentElement
+{
+    public function accept(DocumentVisitor $visitor): mixed;
+}
+
+interface DocumentVisitor
+{
+    public function visitHeading(Heading $heading): mixed;
+    public function visitParagraph(Paragraph $paragraph): mixed;
+}
+
+final class Heading implements DocumentElement
+{
+    public function __construct(public readonly string $text, public readonly int $level) {}
+    public function accept(DocumentVisitor $visitor): mixed { return $visitor->visitHeading($this); }
+}
+
+final class Paragraph implements DocumentElement
+{
+    public function __construct(public readonly string $text) {}
+    public function accept(DocumentVisitor $visitor): mixed { return $visitor->visitParagraph($this); }
+}
+
+final class WordCountVisitor implements DocumentVisitor
+{
+    public function visitHeading(Heading $h): int   { return str_word_count($h->text); }
+    public function visitParagraph(Paragraph $p): int { return str_word_count($p->text); }
+}
+
+final class HtmlRenderVisitor implements DocumentVisitor
+{
+    public function visitHeading(Heading $h): string
+    {
+        return "<h{$h->level}>{$h->text}</h{$h->level}>";
+    }
+    public function visitParagraph(Paragraph $p): string
+    {
+        return "<p>{$p->text}</p>";
+    }
+}
+```
+
+**Key point:** New operations (word count, HTML render, PDF export) are added as new visitor classes without touching the element hierarchy.
+
+---
+
+### Memento
+
+**Intent:** Capture and restore object state without exposing internals.
+
+```php
+final class Memento
+{
+    public function __construct(private readonly string $content) {}
+    public function getContent(): string { return $this->content; }
+}
+
+final class TextEditor
+{
+    private string $content = '';
+
+    public function type(string $text): void { $this->content .= $text; }
+    public function getContent(): string     { return $this->content; }
+
+    public function save(): Memento          { return new Memento($this->content); }
+    public function restore(Memento $m): void { $this->content = $m->getContent(); }
+}
+
+final class History
+{
+    /** @var Memento[] */
+    private array $snapshots = [];
+
+    public function push(Memento $memento): void { $this->snapshots[] = $memento; }
+
+    public function pop(): ?Memento { return array_pop($this->snapshots); }
+}
+
+// Usage
+$editor  = new TextEditor();
+$history = new History();
+
+$editor->type('Hello');
+$history->push($editor->save());
+
+$editor->type(', world!');
+$history->push($editor->save());
+
+$editor->type(' — oops');
+$editor->restore($history->pop()); // undo "— oops"
+
+echo $editor->getContent(); // Hello, world!
+```
+
+**Key point:** `Memento` is opaque to the caretaker (`History`) — state is captured and restored without leaking the editor's internals.
+
+---
+
+### Prototype
+
+**Intent:** Clone a configured object instead of constructing it from scratch.
+
+```php
+final class DocumentTemplate
+{
+    public function __construct(
+        public string $title,
+        public string $footer,
+        public array  $sections,
+    ) {}
+
+    public function __clone(): void
+    {
+        // Deep-copy mutable nested state so clones are independent
+        $this->sections = array_map(fn(array $s) => $s, $this->sections);
+    }
+
+    public function withTitle(string $title): static
+    {
+        $clone        = clone $this;
+        $clone->title = $title;
+        return $clone;
+    }
+
+    public function addSection(string $heading, string $body): static
+    {
+        $clone = clone $this;
+        $clone->sections[] = ['heading' => $heading, 'body' => $body];
+        return $clone;
+    }
+}
+
+// One configured prototype; stamp out variants cheaply
+$base = new DocumentTemplate(
+    title:    'Monthly Report',
+    footer:   'Confidential — Acme Corp',
+    sections: [],
+);
+
+$q1Report = $base->withTitle('Q1 Report')->addSection('Summary', 'Q1 exceeded targets.');
+$q2Report = $base->withTitle('Q2 Report')->addSection('Summary', 'Q2 on track.');
+
+echo $q1Report->title;             // Q1 Report
+echo count($q2Report->sections);   // 1
+```
+
+**Key point:** `clone` combined with `__clone()` for deep-copying nested arrays keeps each stamped document fully independent from the prototype and from each other.

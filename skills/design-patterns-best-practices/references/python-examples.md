@@ -1460,3 +1460,221 @@ class Customer(Entity):
 ```
 
 **Key point:** Identity (`id`), audit fields (`created_at`, `updated_at`), and equality semantics are defined exactly once in `Entity` — domain classes inherit the contract rather than duplicating it.
+
+---
+
+## Remaining GoF Patterns
+
+### Adapter
+
+**Intent:** Wrap a third-party or legacy interface behind the interface your code expects.
+
+```python
+from typing import Protocol
+from dataclasses import dataclass
+
+
+@dataclass
+class PaymentResult:
+    success: bool
+    transaction_id: str
+
+
+class PaymentGateway(Protocol):
+    def charge(self, amount_cents: int, currency: str) -> PaymentResult: ...
+
+
+# Simulated external SDK with an incompatible interface
+class StripeSDK:
+    def create_charge(self, amount: int, currency_code: str) -> dict:
+        return {"status": "ok", "id": "ch_123"}
+
+
+class StripeAdapter:
+    def __init__(self, sdk: StripeSDK) -> None:
+        self._sdk = sdk
+
+    def charge(self, amount_cents: int, currency: str) -> PaymentResult:
+        raw = self._sdk.create_charge(amount=amount_cents, currency_code=currency)
+        return PaymentResult(success=raw["status"] == "ok", transaction_id=raw["id"])
+
+
+# Usage — application code depends only on PaymentGateway Protocol
+def process_payment(gateway: PaymentGateway, amount_cents: int) -> None:
+    result = gateway.charge(amount_cents, "USD")
+    print(f"Charged: {result.transaction_id}" if result.success else "Failed")
+```
+
+**Key point:** The adapter translates the external SDK's vocabulary into the local `PaymentGateway` Protocol so application code never imports or knows about the third-party SDK.
+
+---
+
+### Visitor
+
+**Intent:** Separate an algorithm from the object structure it operates on.
+
+```python
+from __future__ import annotations
+from abc import ABC, abstractmethod
+from dataclasses import dataclass
+from typing import Protocol
+
+
+class DocumentElement(ABC):
+    @abstractmethod
+    def accept(self, visitor: ElementVisitor) -> None: ...
+
+
+class ElementVisitor(Protocol):
+    def visit_heading(self, heading: Heading) -> None: ...
+    def visit_paragraph(self, paragraph: Paragraph) -> None: ...
+
+
+@dataclass
+class Heading(DocumentElement):
+    text: str
+    level: int
+
+    def accept(self, visitor: ElementVisitor) -> None:
+        visitor.visit_heading(self)
+
+
+@dataclass
+class Paragraph(DocumentElement):
+    text: str
+
+    def accept(self, visitor: ElementVisitor) -> None:
+        visitor.visit_paragraph(self)
+
+
+class WordCountVisitor:
+    def __init__(self) -> None:
+        self.count = 0
+
+    def visit_heading(self, heading: Heading) -> None:
+        self.count += len(heading.text.split())
+
+    def visit_paragraph(self, paragraph: Paragraph) -> None:
+        self.count += len(paragraph.text.split())
+
+
+class HtmlRenderVisitor:
+    def __init__(self) -> None:
+        self.output: list[str] = []
+
+    def visit_heading(self, heading: Heading) -> None:
+        self.output.append(f"<h{heading.level}>{heading.text}</h{heading.level}>")
+
+    def visit_paragraph(self, paragraph: Paragraph) -> None:
+        self.output.append(f"<p>{paragraph.text}</p>")
+```
+
+**Key point:** New operations (word count, HTML render, PDF export) are added as new visitor classes without touching `Heading` or `Paragraph`, keeping the element hierarchy stable.
+
+---
+
+### Memento
+
+**Intent:** Capture and restore object state without exposing internals.
+
+```python
+from __future__ import annotations
+from dataclasses import dataclass
+
+
+@dataclass(frozen=True)
+class Memento:
+    content: str
+
+
+class TextEditor:
+    def __init__(self) -> None:
+        self._content: str = ""
+
+    def type(self, text: str) -> None:
+        self._content += text
+
+    def save(self) -> Memento:
+        return Memento(content=self._content)
+
+    def restore(self, memento: Memento) -> None:
+        self._content = memento.content
+
+    @property
+    def content(self) -> str:
+        return self._content
+
+
+class History:
+    def __init__(self) -> None:
+        self._stack: list[Memento] = []
+
+    def push(self, memento: Memento) -> None:
+        self._stack.append(memento)
+
+    def pop(self) -> Memento | None:
+        return self._stack.pop() if self._stack else None
+
+
+# Usage
+editor = TextEditor()
+history = History()
+
+editor.type("Hello")
+history.push(editor.save())
+editor.type(", World")
+history.push(editor.save())
+editor.type("!!!")
+
+editor.restore(history.pop())   # back to "Hello, World"
+editor.restore(history.pop())   # back to "Hello"
+print(editor.content)           # Hello
+```
+
+**Key point:** `Memento` is a frozen dataclass that captures a snapshot of internal state; `History` (the caretaker) stores and returns snapshots without ever reading their contents.
+
+---
+
+### Prototype
+
+**Intent:** Clone a configured object instead of constructing from scratch.
+
+```python
+from __future__ import annotations
+import copy
+from dataclasses import dataclass, field
+
+
+@dataclass
+class PageLayout:
+    font: str
+    font_size: int
+    margins: dict[str, int]
+    tags: list[str]
+
+    def clone(self) -> PageLayout:
+        return copy.deepcopy(self)
+
+
+# Build one fully-configured template once
+report_template = PageLayout(
+    font="Arial",
+    font_size=11,
+    margins={"top": 20, "bottom": 20, "left": 25, "right": 25},
+    tags=["confidential"],
+)
+
+# Stamp out customised copies without re-specifying every field
+cover_page = report_template.clone()
+cover_page.font_size = 16
+cover_page.tags.append("cover")
+
+body_page = report_template.clone()
+body_page.margins["left"] = 30
+
+# Original is untouched
+assert report_template.font_size == 11
+assert report_template.tags == ["confidential"]
+```
+
+**Key point:** `copy.deepcopy` inside `clone()` ensures nested structures (dicts, lists) are fully independent copies, so mutating a clone never corrupts the template or another clone.
