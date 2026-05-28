@@ -75,9 +75,13 @@ Use this skill when the main challenge is changing existing code safely.
 
 ## References
 
-- Read `references/safe-change-workflow.md` for seam-based refactoring guidance.
+- Read `references/safe-change-workflow.md` for seam-based refactoring guidance, sensing and separation, and the legacy code change algorithm.
 - Read `references/refactoring-moves.md` for tactical moves and when to use them.
-- Read `references/language-examples.md` for before/after style examples.
+- Read `references/code-smells.md` when recognizing a problem and choosing the right move.
+- Read `references/legacy-code-techniques.md` for Sprout, Wrap, Extract and Override, and other techniques for working without tests.
+- Read `references/characterization-tests.md` for how to write tests before refactoring untested code.
+- Read `references/fran-iglesias-refactoring-guidance.md` for practical refactoring heuristics distilled from Fran Iglesias.
+- Read `references/language-examples.md` for before/after style examples in multiple languages.
 
 ## Related Skills
 

@@ -148,9 +148,875 @@ final class PremiumPricing implements PricingPolicy
 }
 ```
 
+## Extract Method
+
+Use this move when a method mixes several levels of abstraction or contains a block whose purpose can be captured in a single clear name.
+
+### Before
+
+```typescript
+function printOrderSummary(order: Order): void {
+  console.log(`Order: ${order.id()}`)
+  console.log(`Date: ${order.date()}`)
+
+  for (const item of order.items()) {
+    console.log(`  ${item.name()}: ${item.price().value()}`)
+  }
+
+  console.log(`Total: ${order.items().total().value()}`)
+}
+```
+
+### After in TypeScript
+
+```typescript
+function printOrderSummary(order: Order): void {
+  printHeader(order)
+  printItems(order)
+  printTotal(order)
+}
+
+function printHeader(order: Order): void {
+  console.log(`Order: ${order.id()}`)
+  console.log(`Date: ${order.date()}`)
+}
+
+function printItems(order: Order): void {
+  for (const item of order.items()) {
+    console.log(`  ${item.name()}: ${item.price().value()}`)
+  }
+}
+
+function printTotal(order: Order): void {
+  console.log(`Total: ${order.items().total().value()}`)
+}
+```
+
+### After in Java
+
+```java
+void printOrderSummary(Order order) {
+    printHeader(order);
+    printItems(order);
+    printTotal(order);
+}
+
+private void printHeader(Order order) {
+    System.out.printf("Order: %s%n", order.id());
+    System.out.printf("Date: %s%n", order.date());
+}
+
+private void printItems(Order order) {
+    for (OrderItem item : order.items()) {
+        System.out.printf("  %s: %s%n", item.name(), item.price().value());
+    }
+}
+
+private void printTotal(Order order) {
+    System.out.printf("Total: %s%n", order.items().total().value());
+}
+```
+
+### After in Python
+
+```python
+def print_order_summary(order: Order) -> None:
+    print_header(order)
+    print_items(order)
+    print_total(order)
+
+
+def print_header(order: Order) -> None:
+    print(f"Order: {order.id()}")
+    print(f"Date: {order.date()}")
+
+
+def print_items(order: Order) -> None:
+    for item in order.items():
+        print(f"  {item.name()}: {item.price().value()}")
+
+
+def print_total(order: Order) -> None:
+    print(f"Total: {order.items().total().value()}")
+```
+
+### After in C#
+
+```csharp
+void PrintOrderSummary(Order order)
+{
+    PrintHeader(order);
+    PrintItems(order);
+    PrintTotal(order);
+}
+
+private void PrintHeader(Order order)
+{
+    Console.WriteLine($"Order: {order.Id()}");
+    Console.WriteLine($"Date: {order.Date()}");
+}
+
+private void PrintItems(Order order)
+{
+    foreach (var item in order.Items())
+    {
+        Console.WriteLine($"  {item.Name()}: {item.Price().Value()}");
+    }
+}
+
+private void PrintTotal(Order order)
+{
+    Console.WriteLine($"Total: {order.Items().Total().Value()}");
+}
+```
+
+### After in Ruby
+
+```ruby
+def print_order_summary(order)
+  print_header(order)
+  print_items(order)
+  print_total(order)
+end
+
+def print_header(order)
+  puts "Order: #{order.id}"
+  puts "Date: #{order.date}"
+end
+
+def print_items(order)
+  order.items.each do |item|
+    puts "  #{item.name}: #{item.price.value}"
+  end
+end
+
+def print_total(order)
+  puts "Total: #{order.items.total.value}"
+end
+```
+
+### After in PHP
+
+```php
+function printOrderSummary(Order $order): void
+{
+    printHeader($order);
+    printItems($order);
+    printTotal($order);
+}
+
+function printHeader(Order $order): void
+{
+    echo "Order: {$order->id()}\n";
+    echo "Date: {$order->date()}\n";
+}
+
+function printItems(Order $order): void
+{
+    foreach ($order->items() as $item) {
+        echo "  {$item->name()}: {$item->price()->value()}\n";
+    }
+}
+
+function printTotal(Order $order): void
+{
+    echo "Total: {$order->items()->total()->value()}\n";
+}
+```
+
+---
+
+## Extract Class
+
+Use this move when a class carries two distinct clusters of data and behavior that have different reasons to change.
+
+### Before
+
+```typescript
+class Order {
+  constructor(
+    private readonly orderId: string,
+    private readonly customerName: string,
+    private readonly customerEmail: string,
+    private readonly items: OrderItem[],
+  ) {}
+
+  id(): string { return this.orderId }
+  customerName(): string { return this.customerName }
+  customerEmail(): string { return this.customerEmail }
+  itemCount(): number { return this.items.length }
+}
+```
+
+### After in TypeScript
+
+```typescript
+class Customer {
+  constructor(
+    private readonly _name: string,
+    private readonly _email: string,
+  ) {}
+
+  name(): string { return this._name }
+  email(): string { return this._email }
+}
+
+class Order {
+  constructor(
+    private readonly orderId: string,
+    private readonly _customer: Customer,
+    private readonly items: OrderItem[],
+  ) {}
+
+  id(): string { return this.orderId }
+  customer(): Customer { return this._customer }
+  itemCount(): number { return this.items.length }
+}
+```
+
+### After in Java
+
+```java
+public final class Customer {
+    private final String name;
+    private final String email;
+
+    public Customer(String name, String email) {
+        this.name = name;
+        this.email = email;
+    }
+
+    public String name() { return name; }
+    public String email() { return email; }
+}
+
+public final class Order {
+    private final String orderId;
+    private final Customer customer;
+    private final List<OrderItem> items;
+
+    public Order(String orderId, Customer customer, List<OrderItem> items) {
+        this.orderId = orderId;
+        this.customer = customer;
+        this.items = items;
+    }
+
+    public String id() { return orderId; }
+    public Customer customer() { return customer; }
+    public int itemCount() { return items.size(); }
+}
+```
+
+### After in Python
+
+```python
+class Customer:
+    def __init__(self, name: str, email: str) -> None:
+        self._name = name
+        self._email = email
+
+    def name(self) -> str:
+        return self._name
+
+    def email(self) -> str:
+        return self._email
+
+
+class Order:
+    def __init__(self, order_id: str, customer: Customer, items: list[OrderItem]) -> None:
+        self._order_id = order_id
+        self._customer = customer
+        self._items = items
+
+    def id(self) -> str:
+        return self._order_id
+
+    def customer(self) -> Customer:
+        return self._customer
+
+    def item_count(self) -> int:
+        return len(self._items)
+```
+
+### After in C#
+
+```csharp
+public sealed class Customer
+{
+    public Customer(string name, string email)
+    {
+        Name = name;
+        Email = email;
+    }
+
+    public string Name { get; }
+    public string Email { get; }
+}
+
+public sealed class Order
+{
+    public Order(string orderId, Customer customer, IReadOnlyList<OrderItem> items)
+    {
+        Id = orderId;
+        Customer = customer;
+        Items = items;
+    }
+
+    public string Id { get; }
+    public Customer Customer { get; }
+    public int ItemCount => Items.Count;
+    private IReadOnlyList<OrderItem> Items { get; }
+}
+```
+
+### After in Ruby
+
+```ruby
+class Customer
+  attr_reader :name, :email
+
+  def initialize(name, email)
+    @name = name
+    @email = email
+  end
+end
+
+class Order
+  attr_reader :id, :customer
+
+  def initialize(order_id, customer, items)
+    @id = order_id
+    @customer = customer
+    @items = items
+  end
+
+  def item_count
+    @items.length
+  end
+end
+```
+
+### After in PHP
+
+```php
+final class Customer
+{
+    public function __construct(
+        private readonly string $name,
+        private readonly string $email,
+    ) {}
+
+    public function name(): string { return $this->name; }
+    public function email(): string { return $this->email; }
+}
+
+final class Order
+{
+    public function __construct(
+        private readonly string $orderId,
+        private readonly Customer $customer,
+        private readonly array $items,
+    ) {}
+
+    public function id(): string { return $this->orderId; }
+    public function customer(): Customer { return $this->customer; }
+    public function itemCount(): int { return count($this->items); }
+}
+```
+
+---
+
+## Introduce Value Object
+
+Use this move when validation logic for a domain concept is duplicated across multiple callers.
+
+### Before
+
+```typescript
+function registerUser(email: string): void {
+  if (!email.includes('@')) throw new Error('Invalid email')
+  userRepository.save(new User(email))
+}
+
+function sendNewsletter(email: string): void {
+  if (!email.includes('@')) throw new Error('Invalid email')
+  mailer.send(email, 'Newsletter content')
+}
+```
+
+### After in TypeScript
+
+```typescript
+class EmailAddress {
+  constructor(private readonly value: string) {
+    if (!value.includes('@')) throw new Error('Invalid email address')
+  }
+
+  toString(): string {
+    return this.value
+  }
+}
+
+function registerUser(email: EmailAddress): void {
+  userRepository.save(new User(email))
+}
+
+function sendNewsletter(email: EmailAddress): void {
+  mailer.send(email.toString(), 'Newsletter content')
+}
+```
+
+### After in Java
+
+```java
+public final class EmailAddress {
+    private final String value;
+
+    public EmailAddress(String value) {
+        if (!value.contains("@")) throw new IllegalArgumentException("Invalid email address");
+        this.value = value;
+    }
+
+    @Override
+    public String toString() { return value; }
+}
+
+void registerUser(EmailAddress email) {
+    userRepository.save(new User(email));
+}
+
+void sendNewsletter(EmailAddress email) {
+    mailer.send(email.toString(), "Newsletter content");
+}
+```
+
+### After in Python
+
+```python
+class EmailAddress:
+    def __init__(self, value: str) -> None:
+        if '@' not in value:
+            raise ValueError("Invalid email address")
+        self._value = value
+
+    def __str__(self) -> str:
+        return self._value
+
+
+def register_user(email: EmailAddress) -> None:
+    user_repository.save(User(email))
+
+
+def send_newsletter(email: EmailAddress) -> None:
+    mailer.send(str(email), "Newsletter content")
+```
+
+### After in C#
+
+```csharp
+public sealed class EmailAddress
+{
+    private readonly string _value;
+
+    public EmailAddress(string value)
+    {
+        if (!value.Contains('@')) throw new ArgumentException("Invalid email address");
+        _value = value;
+    }
+
+    public override string ToString() => _value;
+}
+
+void RegisterUser(EmailAddress email)
+{
+    userRepository.Save(new User(email));
+}
+
+void SendNewsletter(EmailAddress email)
+{
+    mailer.Send(email.ToString(), "Newsletter content");
+}
+```
+
+### After in Ruby
+
+```ruby
+class EmailAddress
+  def initialize(value)
+    raise ArgumentError, 'Invalid email address' unless value.include?('@')
+    @value = value
+  end
+
+  def to_s
+    @value
+  end
+end
+
+def register_user(email)
+  user_repository.save(User.new(email))
+end
+
+def send_newsletter(email)
+  mailer.send(email.to_s, 'Newsletter content')
+end
+```
+
+### After in PHP
+
+```php
+final class EmailAddress
+{
+    private string $value;
+
+    public function __construct(string $value)
+    {
+        if (!str_contains($value, '@')) {
+            throw new InvalidArgumentException('Invalid email address');
+        }
+        $this->value = $value;
+    }
+
+    public function __toString(): string
+    {
+        return $this->value;
+    }
+}
+
+function registerUser(EmailAddress $email): void
+{
+    $userRepository->save(new User($email));
+}
+
+function sendNewsletter(EmailAddress $email): void
+{
+    $mailer->send((string) $email, 'Newsletter content');
+}
+```
+
+---
+
+## Move Method
+
+Use this move when a method uses more data from another object than from its own class.
+
+### Before
+
+```typescript
+class Rental {
+  constructor(
+    private readonly movie: Movie,
+    private readonly daysRented: number,
+  ) {}
+
+  charge(): number {
+    if (this.movie.isPremium()) {
+      return this.daysRented * 3.5
+    }
+    return this.daysRented * 2
+  }
+}
+```
+
+### After in TypeScript
+
+```typescript
+class Movie {
+  constructor(private readonly premium: boolean) {}
+
+  dailyRate(): number {
+    return this.premium ? 3.5 : 2
+  }
+}
+
+class Rental {
+  constructor(
+    private readonly movie: Movie,
+    private readonly daysRented: number,
+  ) {}
+
+  charge(): number {
+    return this.movie.dailyRate() * this.daysRented
+  }
+}
+```
+
+### After in Java
+
+```java
+public final class Movie {
+    private final boolean premium;
+
+    public Movie(boolean premium) {
+        this.premium = premium;
+    }
+
+    public double dailyRate() {
+        return premium ? 3.5 : 2.0;
+    }
+}
+
+public final class Rental {
+    private final Movie movie;
+    private final int daysRented;
+
+    public Rental(Movie movie, int daysRented) {
+        this.movie = movie;
+        this.daysRented = daysRented;
+    }
+
+    public double charge() {
+        return movie.dailyRate() * daysRented;
+    }
+}
+```
+
+### After in Python
+
+```python
+class Movie:
+    def __init__(self, premium: bool) -> None:
+        self._premium = premium
+
+    def daily_rate(self) -> float:
+        return 3.5 if self._premium else 2.0
+
+
+class Rental:
+    def __init__(self, movie: Movie, days_rented: int) -> None:
+        self._movie = movie
+        self._days_rented = days_rented
+
+    def charge(self) -> float:
+        return self._movie.daily_rate() * self._days_rented
+```
+
+### After in C#
+
+```csharp
+public sealed class Movie
+{
+    private readonly bool _premium;
+
+    public Movie(bool premium) => _premium = premium;
+
+    public double DailyRate() => _premium ? 3.5 : 2.0;
+}
+
+public sealed class Rental
+{
+    private readonly Movie _movie;
+    private readonly int _daysRented;
+
+    public Rental(Movie movie, int daysRented)
+    {
+        _movie = movie;
+        _daysRented = daysRented;
+    }
+
+    public double Charge() => _movie.DailyRate() * _daysRented;
+}
+```
+
+### After in Ruby
+
+```ruby
+class Movie
+  def initialize(premium)
+    @premium = premium
+  end
+
+  def daily_rate
+    @premium ? 3.5 : 2.0
+  end
+end
+
+class Rental
+  def initialize(movie, days_rented)
+    @movie = movie
+    @days_rented = days_rented
+  end
+
+  def charge
+    @movie.daily_rate * @days_rented
+  end
+end
+```
+
+### After in PHP
+
+```php
+final class Movie
+{
+    public function __construct(private readonly bool $premium) {}
+
+    public function dailyRate(): float
+    {
+        return $this->premium ? 3.5 : 2.0;
+    }
+}
+
+final class Rental
+{
+    public function __construct(
+        private readonly Movie $movie,
+        private readonly int $daysRented,
+    ) {}
+
+    public function charge(): float
+    {
+        return $this->movie->dailyRate() * $this->daysRented;
+    }
+}
+```
+
+---
+
+## Replace Temp with Query
+
+Use this move when a temporary variable stores a computation that can be extracted into a named method, making the intent readable without comments.
+
+### Before
+
+```typescript
+class Cart {
+  calculateTotal(): number {
+    const base = this.items.reduce((sum, item) => sum + item.price(), 0)
+    const discount = base > 100 ? base * 0.1 : 0
+    return base - discount
+  }
+}
+```
+
+### After in TypeScript
+
+```typescript
+class Cart {
+  calculateTotal(): number {
+    return this.baseAmount() - this.discount()
+  }
+
+  private baseAmount(): number {
+    return this.items.reduce((sum, item) => sum + item.price(), 0)
+  }
+
+  private discount(): number {
+    return this.baseAmount() > 100 ? this.baseAmount() * 0.1 : 0
+  }
+}
+```
+
+### After in Java
+
+```java
+public class Cart {
+    private final List<CartItem> items;
+
+    public Cart(List<CartItem> items) {
+        this.items = items;
+    }
+
+    public double calculateTotal() {
+        return baseAmount() - discount();
+    }
+
+    private double baseAmount() {
+        return items.stream().mapToDouble(CartItem::price).sum();
+    }
+
+    private double discount() {
+        return baseAmount() > 100 ? baseAmount() * 0.1 : 0;
+    }
+}
+```
+
+### After in Python
+
+```python
+class Cart:
+    def __init__(self, items: list[CartItem]) -> None:
+        self._items = items
+
+    def calculate_total(self) -> float:
+        return self._base_amount() - self._discount()
+
+    def _base_amount(self) -> float:
+        return sum(item.price() for item in self._items)
+
+    def _discount(self) -> float:
+        return self._base_amount() * 0.1 if self._base_amount() > 100 else 0
+```
+
+### After in C#
+
+```csharp
+public class Cart
+{
+    private readonly IReadOnlyList<CartItem> _items;
+
+    public Cart(IReadOnlyList<CartItem> items) => _items = items;
+
+    public double CalculateTotal() => BaseAmount() - Discount();
+
+    private double BaseAmount() => _items.Sum(item => item.Price());
+
+    private double Discount() => BaseAmount() > 100 ? BaseAmount() * 0.1 : 0;
+}
+```
+
+### After in Ruby
+
+```ruby
+class Cart
+  def initialize(items)
+    @items = items
+  end
+
+  def calculate_total
+    base_amount - discount
+  end
+
+  private
+
+  def base_amount
+    @items.sum(&:price)
+  end
+
+  def discount
+    base_amount > 100 ? base_amount * 0.1 : 0
+  end
+end
+```
+
+### After in PHP
+
+```php
+class Cart
+{
+    public function __construct(private readonly array $items) {}
+
+    public function calculateTotal(): float
+    {
+        return $this->baseAmount() - $this->discount();
+    }
+
+    private function baseAmount(): float
+    {
+        return array_sum(array_map(fn($item) => $item->price(), $this->items));
+    }
+
+    private function discount(): float
+    {
+        return $this->baseAmount() > 100 ? $this->baseAmount() * 0.1 : 0;
+    }
+}
+```
+
+---
+
 ## What to Notice
 
 - The variation becomes explicit.
 - Adding a new pricing rule no longer requires editing a central conditional.
 - The refactor is safest when protected by tests that captured the old behavior first.
 - The same refactoring move works across mainstream object-oriented languages.
+- Each move addresses a specific structural problem — match the smell to the move before refactoring.
