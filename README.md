@@ -1,5 +1,7 @@
 # Agent Skills
 
+[![skills.sh](https://skills.sh/b/luckys/agent-skills)](https://skills.sh/luckys/agent-skills)
+
 A curated collection of reusable agent skills for software design, refactoring, and implementation work. Skills activate automatically when a task matches their description — no explicit invocation needed.
 
 ## Installation
@@ -13,12 +15,12 @@ npx skills add luckys/agent-skills
 Install a single skill:
 
 ```bash
-npx skills add luckys/agent-skills/oop-best-practices
-npx skills add luckys/agent-skills/refactoring-best-practices
-npx skills add luckys/agent-skills/design-patterns-best-practices
-npx skills add luckys/agent-skills/ddd-best-practices
-npx skills add luckys/agent-skills/infrastructure-design
-npx skills add luckys/agent-skills/tdd-best-practices
+npx skills add luckys/agent-skills --skill oop-best-practices
+npx skills add luckys/agent-skills --skill refactoring-best-practices
+npx skills add luckys/agent-skills --skill design-patterns-best-practices
+npx skills add luckys/agent-skills --skill ddd-best-practices
+npx skills add luckys/agent-skills --skill infrastructure-design
+npx skills add luckys/agent-skills --skill tdd-best-practices
 ```
 
 Run the command from your project root. Claude Code and other supported agents pick up `SKILL.md` files automatically on the next session.

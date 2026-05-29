@@ -1,6 +1,10 @@
 ---
 name: refactoring-best-practices
 description: Safe refactoring guidance for legacy and existing codebases. Use when improving design without changing behavior, creating seams around hard dependencies, adding characterization tests, splitting large classes or methods, introducing value objects, replacing conditionals, or incrementally evolving object-oriented code under risk.
+license: MIT
+metadata:
+  author: luckys
+  version: "1.0.0"
 ---
 
 # Refactoring Best Practices

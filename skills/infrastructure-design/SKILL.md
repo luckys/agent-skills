@@ -1,6 +1,10 @@
 ---
 name: infrastructure-design
 description: Infrastructure pattern guidance for DDD and hexagonal architecture applications. Use when implementing an event bus (in-memory, DB-backed, RabbitMQ), applying the Outbox or Inbox pattern, managing database transactions with a TransactionalDecorator, designing cache-aside strategies with Redis, building database views or materialized views, or choosing between synchronous and asynchronous event delivery.
+license: MIT
+metadata:
+  author: luckys
+  version: "1.0.0"
 ---
 
 # Infrastructure Design

@@ -1,6 +1,10 @@
 ---
 name: design-patterns-best-practices
 description: Pattern selection and application guidance for OO systems. Use when choosing a GoF pattern (Strategy, State, Observer, Command, Factory, Builder, Decorator, Proxy, Adapter, Composite, etc.), applying PoEAA enterprise patterns (Transaction Script, Service Layer, Data Mapper, Unit of Work, Repository, Gateway, DTO, Money, Special Case), implementing the Criteria pattern, applying Clean Architecture layers, or reviewing whether a pattern reduces or adds accidental complexity.
+license: MIT
+metadata:
+  author: luckys
+  version: "1.0.0"
 ---
 
 # Design Patterns Best Practices

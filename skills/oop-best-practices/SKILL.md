@@ -1,6 +1,10 @@
 ---
 name: oop-best-practices
 description: Day-to-day OOP guidance for writing and reviewing clean, maintainable code. Use when naming classes and methods, defining object boundaries, introducing value objects or first-class collections, applying Tell Don't Ask or Law of Demeter, enforcing Object Calisthenics, reducing cohesion problems, choosing between inheritance and composition, or reviewing SOLID violations in TypeScript, Java, C#, Python, Ruby, or PHP.
+license: MIT
+metadata:
+  author: luckys
+  version: "1.0.0"
 ---
 
 # OOP Best Practices

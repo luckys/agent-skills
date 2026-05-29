@@ -1,6 +1,10 @@
 ---
 name: tdd-best-practices
 description: Test-Driven Development guidance. Use when writing tests before implementation, applying Red-Green-Refactor, choosing between test doubles (mock vs stub vs fake), deciding test granularity (unit vs integration vs acceptance), practicing outside-in or inside-out TDD, reviewing test suite quality, or diagnosing why a test suite is slow, brittle, or hard to maintain.
+license: MIT
+metadata:
+  author: luckys
+  version: "1.0.0"
 ---
 
 # TDD Best Practices

@@ -1,6 +1,10 @@
 ---
 name: ddd-best-practices
 description: Domain-Driven Design guidance for modeling complex domains. Use when designing Bounded Contexts or Subdomains, defining Aggregates or Aggregate Roots, choosing between Entities and Value Objects, applying Context Mapping patterns (ACL, Open Host Service, Partnership), implementing CQRS or Event Sourcing, building a Ubiquitous Language, applying Hexagonal Architecture (Ports & Adapters), or reviewing whether domain logic leaks into infrastructure or application layers.
+license: MIT
+metadata:
+  author: luckys
+  version: "1.0.0"
 ---
 
 # DDD Best Practices
