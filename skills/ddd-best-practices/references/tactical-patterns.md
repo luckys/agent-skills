@@ -282,6 +282,124 @@ const finder = new UserFinder(repository);
 
 **Practical heuristic:** If your application layer imports anything from an ORM or database driver, the Repository abstraction has leaked. The application layer should only know the domain interface.
 
+### Outbox and Inbox Patterns with Domain Events
+
+When an Aggregate raises Domain Events that must be reliably delivered to other Bounded Contexts, the simplest approach (publish to a message broker inside the same transaction that saves the Aggregate) suffers from a dual-write problem: the DB commit and the broker publish can fail independently, causing lost or phantom events.
+
+**Outbox pattern (write side):** Instead of publishing to the broker directly, the application's `EventBus` implementation writes events to an `outbox_event_bus` table inside the same DB transaction that saves the Aggregate. A separate relay process polls the outbox and publishes to the broker, then deletes published rows.
+
+```sql
+-- outbox_event_bus table (PostgreSQL)
+CREATE TABLE public.outbox_event_bus (
+  event_id    UUID        NOT NULL PRIMARY KEY,
+  event_name  TEXT        NOT NULL,
+  aggregate_id TEXT       NOT NULL,
+  payload     JSONB       NOT NULL,
+  occurred_at TIMESTAMPTZ NOT NULL,
+  inserted_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
+);
+CREATE INDEX idx__outbox_event_bus__inserted_at ON public.outbox_event_bus (inserted_at);
+```
+
+```typescript
+// PostgresOutboxEventBus.ts — EventBus implementation that writes to outbox table
+@Service()
+export class PostgresOutboxEventBus implements EventBus {
+  constructor(connection: PostgresConnection) {
+    this.sql = connection.sql;
+  }
+
+  async publish(events: DomainEvent[]): Promise<void> {
+    if (events.length === 0) return;
+    const rows = events.map((event) => ({
+      event_id:    event.eventId,
+      event_name:  event.eventName,
+      aggregate_id: event.aggregateId,
+      payload:     JSON.parse(DomainEventJsonSerializer.serialize(event)) as JSONValue,
+      occurred_at: event.occurredAt,
+    }));
+    await this.sql`INSERT INTO public.outbox_event_bus ${this.sql(rows)}`;
+  }
+}
+```
+
+```typescript
+// publish-outbox-to-rabbitmq.ts — relay process (runs as a background script)
+const POLLING_INTERVAL_MS = 1000;
+const BATCH_SIZE = 100;
+
+async function pollAndPublish(pg: PostgresConnection, bus: RabbitMqEventBus): Promise<number> {
+  return pg.sql.begin(async (tx) => {
+    const events = await tx`
+      SELECT event_id AS "eventId", event_name AS "eventName", payload::TEXT AS "payload"
+      FROM public.outbox_event_bus
+      ORDER BY inserted_at ASC
+      LIMIT ${BATCH_SIZE}
+      FOR UPDATE SKIP LOCKED
+    `;
+    if (events.length === 0) return 0;
+
+    const domainEvents = events
+      .map((e) => { try { return deserializer.deserialize(e.payload); } catch { return null; } })
+      .filter((e): e is DomainEvent => e !== null);
+
+    if (domainEvents.length > 0) await bus.publish(domainEvents);
+
+    const eventIds = events.map((e) => e.eventId);
+    await tx`DELETE FROM public.outbox_event_bus WHERE event_id = ANY(${eventIds})`;
+    return events.length;
+  });
+}
+// Runs in a while(true) loop with sleep(POLLING_INTERVAL_MS) between iterations
+```
+
+**Key details:** `FOR UPDATE SKIP LOCKED` prevents two relay instances from picking the same rows. Rows are deleted only after successful publish — if the broker call fails, the transaction rolls back and rows remain for the next poll cycle.
+
+**Inbox pattern (read side — idempotency):** Message brokers deliver at-least-once. The Inbox pattern prevents a subscriber from processing the same event twice by recording `(event_id, subscriber_name)` in an `inbox_events` table inside the same transaction as the handler. A duplicate delivery finds the row already present and is silently discarded.
+
+```sql
+-- inbox_events table
+CREATE TABLE public.inbox_events (
+  event_id        UUID        NOT NULL,
+  subscriber_name TEXT        NOT NULL,
+  processed_at    TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+  PRIMARY KEY (event_id, subscriber_name)
+);
+```
+
+```typescript
+// RabbitMqEventBus.ts (inbox-enabled consume side)
+private async consumeWithInbox(
+  subscriber: DomainEventSubscriber<DomainEvent>,
+  domainEvent: DomainEvent,
+): Promise<void> {
+  await this.postgresConnection.sql.begin(async (trx) => {
+    // Atomic idempotency check: INSERT … ON CONFLICT DO NOTHING
+    const result = await trx`
+      INSERT INTO public.inbox_events (event_id, subscriber_name)
+      VALUES (${domainEvent.eventId}, ${subscriber.name()})
+      ON CONFLICT (event_id, subscriber_name) DO NOTHING
+      RETURNING event_id
+    `;
+
+    if (result.length === 0) {
+      // Already processed — silently skip
+      console.error("Ignoring duplicate event", domainEvent);
+      return;
+    }
+
+    // First time seeing this event for this subscriber — process it
+    await subscriber.on(domainEvent);
+    // subscriber.on() and the inbox INSERT commit together atomically
+  });
+}
+```
+
+**Practical heuristic:**
+- Use the Outbox pattern whenever a Domain Event must cross a process boundary (e.g., to a message broker). Do not publish directly from the Repository `save()` call.
+- Use the Inbox pattern whenever a subscriber's handler is not naturally idempotent. The composite primary key `(event_id, subscriber_name)` means different subscribers can independently receive the same event — only duplicate deliveries to the *same* subscriber are blocked.
+- Both patterns rely on the same DB that stores Aggregates. This makes them a natural fit for systems that already use PostgreSQL (or any transactional DB).
+
 ---
 
 ## Factory

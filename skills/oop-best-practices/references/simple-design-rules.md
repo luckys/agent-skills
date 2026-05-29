@@ -162,6 +162,93 @@ class InMemoryUserRepository implements UserRepository { ... }
 
 The rules frequently interact. Applying rule 3 (no duplication) via a value object simultaneously satisfies rule 2 (reveals intention) by naming the concept, and often reduces elements (rule 4) by consolidating scattered validation. The test suite (rule 1) makes all refactoring safe.
 
+---
+
+## Concrete Repo Examples — Rule 2: Effective Naming (ubiquitous language)
+
+The `four_rules_of_simple_design-course` repo structures Rule 2 as three progressive steps:
+
+1. `1-no_ubiquitous_language/` — uses technical names like `code`, `type`, generic identifiers
+2. `2-with_ubiquitous_language/` — replaces with domain names matching the team's glossary
+3. `3-without_status/` — removes boolean status flags, replacing with named state transitions
+
+The ubiquitous-language step is the same transformation shown in the Admin example above. The `without_status` step is an additional refinement: instead of `isActive: boolean`, the code models explicit state (`Active`, `Suspended`) so callers never need to branch on the boolean.
+
+**The `search` vs `find` naming convention** is demonstrated in two parallel TypeScript projects:
+- `1-all_get/` — every repository method is prefixed `get`, regardless of whether null is possible
+- `2-search_and_find/` — methods are split: `search*` returns `null` / empty; `find*` always returns or throws
+
+**Practical heuristic:** When you see `getUserById` and `getUserByEmail` with different null-return contracts, rename them `findUserById` (throws) and `searchUserByEmail` (returns null). The name encodes the contract.
+
+---
+
+## Concrete Repo Examples — Rule 3: Literal Duplication (actual source)
+
+The repo's `04-remove_duplicity/1-literal_code_duplication/src/User.php` shows the before state:
+
+```php
+// Before: validation is inside the constructor — but Admin.php has the same check
+final readonly class User
+{
+    public function __construct(
+        private string $username,
+        private string $email,
+        private string $name,
+        private string $surname
+    ) {
+        $usernameLength = strlen($username);
+
+        if ($usernameLength < 3) {
+            throw new InvalidArgumentException('Username must be at least 3 characters long');
+        }
+
+        if ($usernameLength > 20) {
+            throw new InvalidArgumentException('Username must be less than 20 characters long');
+        }
+    }
+}
+```
+
+The after state extracts `Username` as a value object with the length check inside it. Both `User` and `Admin` then accept a `Username` VO — the duplication disappears because the rule now lives in one place.
+
+**Structural duplication** is shown via an `Invoices/` and `Orders/` pair that share the same internal shape (e.g., both have an `amount` range validation). The fix is a shared base class or trait.
+
+**Conceptual duplication** is shown via `Ecommerce/` and `Retention/` that enforce the same business rule (e.g., minimum purchase age) expressed differently. The fix is finding the canonical owner of that rule and deleting the other expression.
+
+---
+
+## Concrete Repo Examples — Rule 4: YAGNI and Interfaces
+
+The repo's `03-fewest_elements/1-yagni/` uses Java to show the anti-pattern: adding abstract base classes or utility helpers that are used by exactly one caller. The fix is deletion — inline the logic until a real second caller appears.
+
+The `03-fewest_elements/2-interfaces/` subfolder shows the single-implementation interface problem:
+
+```typescript
+// Anti-pattern: interface with only one real implementation
+interface UserRepository {
+  save(user: User): void;
+}
+class InMemoryUserRepository implements UserRepository { ... }
+// If no second implementation exists or is planned, delete the interface
+```
+
+The exception is dependency inversion for testability: if you need to inject a mock in tests, the interface is justified because there are effectively two implementations (the real one and the test double). Even then, some teams use the concrete class as the constructor parameter type and override with Jest mocks — the interface is only truly necessary when you cannot use language-level mock injection.
+
+**Practical heuristic:** Count the implementations before adding an interface. Zero or one real implementation → delete the interface. Two or more → keep it.
+
+---
+
+## Concrete Repo Examples — Rule 1: Refactoring Without Breaking Tests
+
+The `05-tests/1-how_to_refactor_wo_breaking_tests/` project is a Next.js app showing safe incremental refactoring:
+- Test suite must pass before and after every change
+- Changes are one concept at a time: rename, extract, move — never all at once
+- The `2-reproduce_bug/` subfolder shows the discipline of writing a failing test that reproduces the bug before touching production code
+
+**Practical heuristic:** If you cannot write a failing test that reproduces a bug, you do not understand it well enough to fix it safely.
+
+---
+
 ## Related Skills
 
 - `oop-best-practices` — naming, value objects, cohesion

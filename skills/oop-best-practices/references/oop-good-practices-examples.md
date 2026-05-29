@@ -112,6 +112,52 @@ Making the constructor `private` forces all creation through named constructors,
 
 ---
 
+## Demeter Violation in TypeScript — Full Example
+
+Source: `02-demeter_tell_dont_ask/1-demeter/src/UserFullNameByIdFinder.ts`
+
+**Violation — reaching through nested value objects:**
+```typescript
+// Bad: finder reaches through User → UserFullName → UserName → value
+export class UserFullNameByIdFinder {
+  constructor(private readonly repository: UserRepository) {}
+
+  find(id: string): string {
+    const user = this.repository.search(id);
+    if (user === null) throw new Error(`The user ${id} does not exist`);
+    // Demeter violation: two dots into internal structure
+    return `${user.fullName.name.value} ${user.fullName.lastName.value}`;
+  }
+}
+```
+
+**Fix — move display logic into User:**
+```typescript
+// Good: User exposes a single method that produces its own display string
+export class User {
+  constructor(
+    public readonly id: UserId,
+    public readonly fullName: UserFullName,
+  ) {}
+
+  displayFullName(): string {
+    return `${this.fullName.name.value} ${this.fullName.lastName.value}`;
+  }
+}
+
+export class UserFullNameByIdFinder {
+  find(id: string): string {
+    const user = this.repository.search(id);
+    if (user === null) throw new Error(`The user ${id} does not exist`);
+    return user.displayFullName(); // single dot — Demeter satisfied
+  }
+}
+```
+
+**Why the structures are correct:** `User` holds a `UserFullName` value object; `UserFullName` holds `UserName` and `UserLastName`. Each has a `.value` primitive. The fix is not to flatten the structure — it is to add one method that encapsulates the traversal so callers never have to chain through it.
+
+---
+
 ## Related Skills
 
 - `oop-best-practices` — naming, object boundaries, value objects

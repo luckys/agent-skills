@@ -151,6 +151,101 @@ END;
 
 ---
 
+## Materialized View — SQL Server (Indexed View)
+
+**Intent:** Use SQL Server's indexed view to materialize a query result with automatic synchronous maintenance on every write.
+
+**How it works:** `CREATE VIEW ... WITH SCHEMABINDING` followed by `CREATE UNIQUE CLUSTERED INDEX` on the view causes SQL Server to maintain the materialized data automatically on every `INSERT`, `UPDATE`, or `DELETE` to the underlying tables — no manual `REFRESH` needed, unlike PostgreSQL.
+
+**When to use:**
+- SQL Server environments where you want the freshness of a standard view with the performance of a materialized view
+- Aggregations that must always be current (no tolerable lag)
+- Scenarios where the aggregate query runs on a table that is written frequently but queried even more frequently
+
+**When NOT to use:**
+- Views with `OUTER JOIN`, `DISTINCT`, subqueries, or non-deterministic functions (SQL Server prohibits indexing these)
+- Very high write throughput — every write pays the index maintenance cost
+- When the view references more than one database
+
+**Example:**
+```sql
+-- SQL Server indexed view (automatically maintained)
+CREATE VIEW dbo.posts_with_likes
+WITH SCHEMABINDING
+AS
+SELECT
+  p.id,
+  p.user_id,
+  p.content,
+  p.created_at,
+  COUNT_BIG(*) AS total_likes    -- must use COUNT_BIG, not COUNT
+FROM dbo.posts AS p
+INNER JOIN dbo.post_likes AS pl ON pl.post_id = p.id  -- must be INNER JOIN
+GROUP BY p.id, p.user_id, p.content, p.created_at;
+
+-- Materializes the view; SQL Server now maintains this index automatically
+CREATE UNIQUE CLUSTERED INDEX IX_posts_with_likes ON dbo.posts_with_likes (id);
+
+-- Query hits the materialized index directly (no recomputation)
+SELECT * FROM dbo.posts_with_likes WHERE user_id = '...';
+```
+
+**Practical heuristic:** SQL Server indexed views are more restrictive than PostgreSQL materialized views but more automatic. Check that your aggregation uses `COUNT_BIG`, all joins are `INNER JOIN`, and the view is bound with `SCHEMABINDING` — without these the index creation will fail.
+
+---
+
+## Event-Driven Projection Handler (Application Layer)
+
+**Intent:** Maintain a projection table from domain events, keeping the read model in sync without DB triggers or scheduled refresh.
+
+**How it works:** A domain event subscriber listens for events (e.g., `PostLikeAdded`) and updates the projection table incrementally. The projection handler is an application service in the read context — it has full access to repositories, application services, and external APIs that a DB trigger cannot call.
+
+**When to use:**
+- Projection logic requires application code (e.g., calling an external API, applying business rules, enriching with data from another context)
+- Cross-context projections where the read context lives in a different service from the write context
+- When trigger logic exceeds ~10 lines and becomes difficult to reason about
+
+**When NOT to use:**
+- Simple `COUNT` / `SUM` projections that triggers handle cleanly
+- When you need synchronous consistency (event-driven projections are eventually consistent)
+
+**Practical heuristic:** Start with a DB trigger. Move to an event-driven projection handler when (a) the trigger exceeds 10 lines, (b) the projection needs data from another bounded context, or (c) the projection must call application-layer services.
+
+**Example — TypeScript event handler updating a projection:**
+```typescript
+// OnPostLikeAddedUpdatePostProjection.ts
+export class OnPostLikeAddedUpdatePostProjection
+  implements DomainEventSubscriber<PostLikeAdded>
+{
+  subscribedTo() {
+    return [PostLikeAdded];
+  }
+
+  constructor(private readonly projectionRepository: PostProjectionRepository) {}
+
+  async on(event: PostLikeAdded): Promise<void> {
+    const projection = await this.projectionRepository.search(new PostId(event.postId));
+    if (!projection) return;
+
+    const updated = projection.incrementLikes();
+    await this.projectionRepository.save(updated);
+  }
+}
+
+// PostProjectionRepository — writes to the denormalized projection table
+export class MariaDBPostProjectionRepository implements PostProjectionRepository {
+  async save(projection: PostProjection): Promise<void> {
+    await this.connection.execute(`
+      INSERT INTO posts_projection (id, user_id, content, total_likes, created_at)
+      VALUES (?, ?, ?, ?, ?)
+      ON DUPLICATE KEY UPDATE total_likes = ?
+    `);
+  }
+}
+```
+
+---
+
 ## Views vs Projections vs Cache: Decision Table
 
 | Need | Solution |

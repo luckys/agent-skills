@@ -130,6 +130,138 @@ export class CachedPostRepository implements PostRepository {
 
 ---
 
+## Redis Integration — Concrete TypeScript Implementation
+
+**Intent:** Wrap the `redis` npm package behind a typed `RedisClient` class to keep infrastructure details out of domain code and enable easy testing via the `Cache` interface.
+
+**Example — RedisClient.ts (from CodelyTV/infrastructure_design-cache-course):**
+```typescript
+import {
+  createClient,
+  RedisClientType,
+  RedisDefaultModules,
+  RedisFunctions,
+  RedisModules,
+  RedisScripts,
+} from "redis";
+
+export class RedisClient {
+  private readonly client: Promise<
+    RedisClientType<RedisDefaultModules & RedisModules, RedisFunctions, RedisScripts>
+  >;
+
+  constructor() {
+    this.client = createClient().connect();
+  }
+
+  async has(key: string): Promise<boolean> {
+    return (await (await this.client).exists(key)) === 1;
+  }
+
+  public async get<T>(key: string, deserializer: (parsedJson: any) => T): Promise<T | null> {
+    const value = await (await this.client).get(key);
+    if (value !== null) {
+      try {
+        const parsedValue = JSON.parse(value);
+        return deserializer(parsedValue);
+      } catch (error) {
+        console.error("Error parsing JSON from Redis", error);
+        return null;
+      }
+    }
+    return null;
+  }
+
+  public async set<T>(key: string, value: T, ttlInSeconds: number): Promise<void> {
+    const serializedValue = JSON.stringify(value);
+    await (await this.client).set(key, serializedValue, { EX: ttlInSeconds });
+  }
+
+  async flushAll(): Promise<void> {
+    await (await this.client).flushAll();
+  }
+}
+```
+
+**Usage in a cached repository:**
+```typescript
+export class RedisCachedPostRepository implements PostRepository {
+  constructor(
+    private readonly wrapped: PostgresPostRepository,
+    private readonly redis: RedisClient,
+  ) {}
+
+  async search(id: PostId): Promise<Post | null> {
+    const key = `post:${id.value}`;
+    const cached = await this.redis.get(key, (raw) => Post.fromPrimitives(raw));
+    if (cached) return cached;
+
+    const post = await this.wrapped.search(id);
+    if (post) {
+      await this.redis.set(key, post.toPrimitives(), 60); // 60s TTL
+    }
+    return post;
+  }
+
+  async save(post: Post): Promise<void> {
+    await this.wrapped.save(post);
+    // Invalidate on write — next read will repopulate from DB
+    await this.redis.set(`post:${post.id.value}`, post.toPrimitives(), 60);
+  }
+}
+```
+
+**Practical heuristic:** Inject `RedisClient` via DI as a singleton. The `get` method accepts a `deserializer` function so callers control how raw JSON maps to domain objects — the cache layer never needs to know the domain model's constructor signature.
+
+---
+
+## Cache Key Strategies
+
+**Intent:** Build cache keys that are unique, predictable, and easy to invalidate without key collisions between contexts or aggregate types.
+
+**Patterns:**
+
+| Pattern | Key format | Use case |
+|---|---|---|
+| Aggregate by ID | `<type>:<id>` | `post:abc-123` | Single aggregate lookup |
+| Namespaced by context | `<context>:<type>:<id>` | `rrss:post:abc-123` | Multi-context apps sharing one Redis |
+| Versioned | `<type>:<id>:v<n>` | `post:abc-123:v2` | Breaking schema change — old keys expire naturally |
+| Composite | `<type>:<field1>:<value1>` | `user:email:foo@bar.com` | Secondary index lookup |
+
+**Rules:**
+1. **Never cache list queries with arbitrary filters.** The key space explodes (`post:page:1:size:10:sort:date` × N) and you cannot invalidate efficiently. Cache only by aggregate ID.
+2. **Use the aggregate ID as the canonical key.** Derive all cache operations from the ID — you always have the ID on writes.
+3. **Prefix by aggregate type, not by use case.** A `post:abc-123` key is reusable across `GetPost`, `PublishPost`, and `DeletePost` use cases. A `get-post:abc-123` key is not.
+4. **In shared Redis instances, prefix by bounded context** to prevent collisions: `mooc:course:abc` vs `rrss:post:abc`.
+
+**Example — In-memory cache (simple alternative to Redis for tests/dev):**
+```typescript
+// InMemoryCacheUserRepository.ts — from CodelyTV/infrastructure_design-eventbus-db-course
+export class InMemoryCacheUserRepository implements UserRepository {
+  private readonly users: Map<UserId, User> = new Map();
+
+  constructor(private readonly repository: UserRepository) {}
+
+  async save(user: User): Promise<void> {
+    await this.repository.save(user);
+    this.users.set(user.id, user);        // write-through
+  }
+
+  async search(id: UserId): Promise<User | null> {
+    const cached = this.users.get(id);
+    if (cached) return cached;
+
+    const user = await this.repository.search(id);
+    if (user) this.users.set(id, user);   // populate on miss
+    return user;
+  }
+}
+```
+
+**Practical heuristic:** Use `InMemoryCache*Repository` in tests and development — no Redis container needed. Swap in `RedisCached*Repository` in production via DI container configuration only.
+
+---
+
 ## What to Cache in DDD Contexts
 
 | Layer | Good candidates | Bad candidates |

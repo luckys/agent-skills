@@ -53,6 +53,52 @@ export class Filter {
   ) {}
 }
 
+// Filter.ts — full implementation
+export type FiltersPrimitives = {
+  field: string;
+  operator: string;
+  value: string;
+};
+
+export class Filter {
+  constructor(
+    public readonly field: FilterField,
+    public readonly operator: FilterOperator,
+    public readonly value: FilterValue,
+  ) {}
+
+  static fromPrimitives(field: string, operator: string, value: string): Filter {
+    return new Filter(
+      new FilterField(field),
+      new FilterOperator(Operator[operator as keyof typeof Operator]),
+      new FilterValue(value),
+    );
+  }
+
+  toPrimitives(): FiltersPrimitives {
+    return { field: this.field.value, operator: this.operator.value, value: this.value.value };
+  }
+}
+
+// Filters.ts — collection wrapper
+export class Filters {
+  constructor(public readonly value: Filter[]) {}
+
+  static fromPrimitives(filters: FiltersPrimitives[]): Filters {
+    return new Filters(
+      filters.map((f) => Filter.fromPrimitives(f.field, f.operator, f.value)),
+    );
+  }
+
+  toPrimitives(): FiltersPrimitives[] {
+    return this.value.map((f) => f.toPrimitives());
+  }
+
+  isEmpty(): boolean {
+    return this.value.length === 0;
+  }
+}
+
 // Order.ts
 export class Order {
   constructor(
@@ -246,7 +292,96 @@ const criteria = Criteria.fromPrimitives(
 );
 ```
 
-**Practical heuristic:** Use offset pagination by default. Switch to cursor pagination only when the collection is large and high-write, or when "infinite scroll" UX requires stable results between fetches.
+**Cursor/pointer pagination — actual implementation from the CodelyTV course (`04-paginate_criteria/3-add_pointer_pagination`):**
+
+The cursor variant replaces `pageNumber` with a `cursor: string | null` field. The cursor is the last-seen value of the `orderBy` field (e.g., a timestamp or UUID). The converter emits `WHERE orderBy < cursor` instead of `OFFSET`, making the query stable under concurrent writes and independent of row count.
+
+```typescript
+// Criteria.ts — cursor variant
+export class Criteria {
+  constructor(
+    public readonly filters: Filters,
+    public readonly order: Order,
+    public readonly pageSize: number | null,
+    public readonly cursor: string | null,  // replaces pageNumber
+  ) {
+    if (cursor !== null && pageSize === null) {
+      throw new Error("Page size is required when cursor is defined");
+    }
+    if (cursor !== null && order.isNone()) {
+      throw new Error("Order is required when cursor is defined");
+    }
+  }
+
+  static fromPrimitives(
+    filters: FiltersPrimitives[],
+    orderBy: string | null,
+    orderType: string | null,
+    pageSize: number | null,
+    cursor: string | null,
+  ): Criteria {
+    return new Criteria(
+      Filters.fromPrimitives(filters),
+      Order.fromPrimitives(orderBy, orderType),
+      pageSize,
+      cursor,
+    );
+  }
+}
+
+// CriteriaToSqlConverter.ts — cursor branch
+export class CriteriaToSqlConverter {
+  convert(fieldsToSelect: string[], tableName: string, criteria: Criteria): string {
+    let query = `SELECT ${fieldsToSelect.join(", ")} FROM ${tableName}`;
+
+    if (criteria.hasFilters()) {
+      query = query.concat(" WHERE ");
+      const whereQuery = criteria.filters.value.map((f) => this.generateWhereQuery(f));
+      query = query.concat(whereQuery.join(" AND "));
+    }
+
+    // Cursor pagination: WHERE orderByField < cursorValue (no OFFSET)
+    if (criteria.cursor !== null) {
+      query = query.concat(query.includes("WHERE") ? " AND " : " WHERE ");
+      query = query.concat(`${criteria.order.orderBy.value} < '${criteria.cursor}'`);
+    }
+
+    if (criteria.hasOrder()) {
+      query = query.concat(
+        ` ORDER BY ${criteria.order.orderBy.value} ${criteria.order.orderType.value}`,
+      );
+    }
+
+    if (criteria.pageSize !== null) {
+      query = query.concat(` LIMIT ${criteria.pageSize}`);
+    }
+
+    return `${query};`;
+  }
+
+  private generateWhereQuery(filter: Filter): string {
+    if (filter.operator.isContains()) {
+      return `${filter.field.value} LIKE '%${filter.value.value}%'`;
+    }
+    if (filter.operator.isNotContains()) {
+      return `${filter.field.value} NOT LIKE '%${filter.value.value}%'`;
+    }
+    return `${filter.field.value} ${filter.operator.value} '${filter.value.value}'`;
+  }
+}
+```
+
+**Client usage — reading the next page:**
+```typescript
+// First page: no cursor
+const page1 = Criteria.fromPrimitives([], "created_at", "DESC", 20, null);
+
+// Next page: cursor = last item's created_at from page 1
+const lastSeenCreatedAt = results[results.length - 1].createdAt;
+const page2 = Criteria.fromPrimitives([], "created_at", "DESC", 20, lastSeenCreatedAt);
+```
+
+**Practical heuristic:** Use offset pagination by default. Switch to cursor pagination only when the collection is large and high-write, or when "infinite scroll" UX requires stable results between fetches. Cursor pagination requires a mandatory `orderBy` — enforce this at construction time (as the course does).
 
 ---
 

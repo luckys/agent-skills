@@ -200,3 +200,137 @@ export class UpdateRetentionUserEmailOnUserEmailUpdated
 - Handler: `UpdateRetentionUserEmailOnUserEmailUpdated`
 
 **Practical heuristic:** If you are tempted to add a query-specific field to an aggregate, stop — that field belongs in a read model, not in the aggregate that enforces business rules.
+
+---
+
+## Write Use Case Structure — Command → UseCase → Repository + EventBus
+
+**Intent:** Show the complete write path: the use case creates the aggregate, saves it, and publishes domain events through an event bus.
+
+**How it works:** The write use case receives primitives (strings, numbers), delegates creation to the aggregate's named constructor (which records domain events internally), saves the aggregate via the repository port, and publishes the collected events via the event bus port. The aggregate's `record()` method accumulates events; `pullDomainEvents()` drains and returns them for publishing.
+
+**Aggregate — records domain events on state change:**
+```typescript
+// contexts/rrss/users/domain/User.ts
+import { AggregateRoot } from "../../../shared/domain/AggregateRoot";
+import { UserRegisteredDomainEvent } from "./UserRegisteredDomainEvent";
+
+export type UserPrimitives = {
+  id: string;
+  name: string;
+  email: string;
+  profilePicture: string;
+  status: string;
+};
+
+export class User extends AggregateRoot {
+  private constructor(
+    public readonly id: UserId,
+    private readonly name: UserName,
+    private email: UserEmail,
+    private readonly profilePicture: UserProfilePicture,
+    private status: UserStatus,
+  ) {
+    super();
+  }
+
+  // Named constructor — records a domain event at creation
+  static create(id: string, name: string, email: string, profilePicture: string): User {
+    const defaultStatus = UserStatus.Active;
+    const user = new User(
+      new UserId(id),
+      new UserName(name),
+      new UserEmail(email),
+      new UserProfilePicture(profilePicture),
+      defaultStatus,
+    );
+    user.record(new UserRegisteredDomainEvent(id, name, email, profilePicture, defaultStatus));
+    return user;
+  }
+
+  static fromPrimitives(primitives: UserPrimitives): User {
+    return new User(
+      new UserId(primitives.id),
+      new UserName(primitives.name),
+      new UserEmail(primitives.email),
+      new UserProfilePicture(primitives.profilePicture),
+      primitives.status as UserStatus,
+    );
+  }
+
+  toPrimitives(): UserPrimitives {
+    return {
+      id: this.id.value,
+      name: this.name.value,
+      email: this.email.value,
+      profilePicture: this.profilePicture.value,
+      status: this.status,
+    };
+  }
+
+  // State-changing method — records another domain event
+  updateEmail(email: string): void {
+    this.email = new UserEmail(email);
+    this.record(new UserEmailUpdatedDomainEvent(this.id.value, email));
+  }
+}
+```
+
+**Domain event — carries what changed as primitives:**
+```typescript
+// contexts/rrss/users/domain/UserRegisteredDomainEvent.ts
+import { UserDomainEvent } from "./UserDomainEvent";
+
+export class UserRegisteredDomainEvent extends UserDomainEvent {
+  static eventName = "codely.rrss.user.registered";
+
+  constructor(
+    public readonly id: string,
+    public readonly name: string,
+    public readonly email: string,
+    public readonly profilePicture: string,
+    eventId?: string,
+    occurredOn?: Date,
+  ) {
+    super(UserRegisteredDomainEvent.eventName, id, eventId, occurredOn);
+  }
+
+  toPrimitives() {
+    return { id: this.id, name: this.name, email: this.email, profilePicture: this.profilePicture };
+  }
+
+  static fromPrimitives(aggregateId: string, eventId: string, occurredOn: Date, attributes: Record<string, unknown>) {
+    return new UserRegisteredDomainEvent(
+      aggregateId,
+      attributes.name as string,
+      attributes.email as string,
+      attributes.profilePicture as string,
+      eventId,
+      occurredOn,
+    );
+  }
+}
+```
+
+**Write use case — save + publish:**
+```typescript
+// contexts/rrss/users/application/registrar/UserRegistrar.ts
+import { EventBus } from "../../../../shared/domain/event/EventBus";
+import { User } from "../../domain/User";
+import { UserRepository } from "../../domain/UserRepository";
+
+export class UserRegistrar {
+  constructor(
+    private readonly repository: UserRepository,
+    private readonly eventBus: EventBus,
+  ) {}
+
+  async registrar(id: string, name: string, email: string, profilePicture: string): Promise<void> {
+    const user = User.create(id, name, email, profilePicture); // records event internally
+    await this.repository.save(user);
+    await this.eventBus.publish(user.pullDomainEvents()); // drains and dispatches
+  }
+}
+```
+
+**Practical heuristic:** The use case never constructs domain events directly — it delegates all business decisions (including which events to raise) to the aggregate's named constructor and mutation methods. The use case is the orchestrator: create, save, publish. Nothing more.

@@ -112,6 +112,101 @@ export class TransactionalPostPublisher implements PostPublisherInterface {
 
 ---
 
+## Transaction Decorator — Proxy-Based Generic Implementation
+
+**Intent:** Apply transaction semantics to any use case automatically using a JavaScript `Proxy`, without writing a decorator class for each use case.
+
+**How it works:** `TransactionalDecorator.decorate(useCase, connection)` wraps every method on the target object. Before the method runs, it calls `connection.beginTransaction()`. On success it calls `connection.commit()`. On any exception it calls `connection.rollback()` and re-throws. The use case code has zero transaction awareness.
+
+**When to use:**
+- When you have many use cases that all need the same transaction boundary
+- In DI containers where you can decorate at registration time (e.g., `diod`, NestJS providers)
+- When you want to enforce "every use case = one transaction" as a container-level convention
+
+**When NOT to use:**
+- When the use case has read-only methods that should not open transactions
+- When you need different isolation levels per method
+- TypeScript `Proxy` bypasses the type system — add `// @ts-ignore` carefully and test thoroughly
+
+**Practical heuristic:** Use the Proxy decorator for cross-cutting transaction enforcement at the composition root. If only one or two use cases need transactions, write explicit decorators instead — the Proxy approach pays off at scale (5+ use cases).
+
+**Example — TransactionalDecorator.ts (from CodelyTV/infrastructure_design-transactions-course):**
+```typescript
+import { DatabaseConnection } from "../domain/DatabaseConnection";
+
+export class TransactionalDecorator {
+  static decorate<T>(decorated: T, connection: DatabaseConnection): T {
+    // @ts-ignore
+    return new Proxy(decorated, {
+      get: (target, propKey) => {
+        // @ts-ignore
+        const originalMethod = target[propKey];
+        if (typeof originalMethod === "function") {
+          return async (...args: any[]) => {
+            try {
+              await connection.beginTransaction();
+              const result = await originalMethod.apply(target, args);
+              await connection.commit();
+              return result;
+            } catch (error) {
+              await connection.rollback();
+              throw error;
+            }
+          };
+        }
+        return originalMethod;
+      },
+    });
+  }
+}
+```
+
+**Example — DatabaseConnection interface and MariaDB implementation:**
+```typescript
+// DatabaseConnection.ts (domain interface — no ORM dependency)
+export abstract class DatabaseConnection {
+  abstract searchOne<T>(query: string): Promise<T | null>;
+  abstract execute(query: string): Promise<void>;
+  abstract beginTransaction(): Promise<void>;
+  abstract commit(): Promise<void>;
+  abstract rollback(): Promise<void>;
+}
+
+// MariaDBConnection.ts (infrastructure — wraps mariadb pool)
+export class MariaDBConnection extends DatabaseConnection {
+  private poolInstance: Pool | null = null;
+  private connection: MinimalConnection | null = null;
+
+  async beginTransaction(): Promise<void> {
+    this.connection = await this.pool.getConnection();
+    await this.connection.beginTransaction();
+  }
+
+  async commit(): Promise<void> {
+    await this.connection?.commit();
+    await this.connection?.end();
+    this.connection = null;
+  }
+
+  async rollback(): Promise<void> {
+    await this.connection?.rollback();
+    await this.connection?.end();
+    this.connection = null;
+  }
+}
+```
+
+**Registration in DI container:**
+```typescript
+// Use at composition root — the use case itself stays clean
+const postPublisher = TransactionalDecorator.decorate(
+  new PostPublisher(repository, eventBus),
+  mariadbConnection,
+);
+```
+
+---
+
 ## Distributed Transactions
 
 **Intent:** Coordinate writes across multiple services or databases.

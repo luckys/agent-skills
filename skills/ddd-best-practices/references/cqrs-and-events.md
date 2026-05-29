@@ -207,20 +207,28 @@ export class UserRegistrar {
 
 ---
 
-## EventBus Interface
+## EventBus Interface and DomainEventSubscriber
 
-**Intent:** Decouple the domain from event transport infrastructure by hiding the publishing mechanism behind a port.
+**Intent:** Decouple the domain from event transport infrastructure and define a standard contract for reacting to domain events.
 
 **How it works:** The `EventBus` interface lives in the domain layer alongside `DomainEvent`. Infrastructure provides concrete implementations (`InMemoryEventBus`, RabbitMQ adapter, etc.). The use case receives the bus via constructor injection, so tests can swap in a mock without touching real infrastructure.
 
-**Example:**
+The `DomainEventSubscriber<T>` interface defines how handlers declare which events they care about. Each subscriber implements `subscribedTo()` — returning the event class constructors it handles — and `on(event)` — the handler called on dispatch. The `InMemoryEventBus` builds a `Map<eventName, handlers[]>` at startup by iterating all registered subscribers.
+
+**Example — complete wiring:**
 ```typescript
 // Domain port
 export interface EventBus {
   publish(events: DomainEvent[]): Promise<void>;
 }
 
-// Concrete event (extends DomainEvent marker class)
+// Domain port — subscriber contract
+export interface DomainEventSubscriber<T extends DomainEvent> {
+  on(domainEvent: T): Promise<void>;
+  subscribedTo(): DomainEventName<T>[];  // array of event class constructors
+}
+
+// Concrete event
 export class UserRegisteredDomainEvent extends DomainEvent {
   constructor(
     public readonly id: string,
@@ -231,9 +239,117 @@ export class UserRegisteredDomainEvent extends DomainEvent {
     super();
   }
 }
+
+// Infrastructure — InMemoryEventBus registers subscribers at construction time
+export class InMemoryEventBus implements EventBus {
+  private readonly subscriptions: Map<string, Function[]> = new Map();
+
+  constructor(subscribers: DomainEventSubscriber<DomainEvent>[]) {
+    this.registerSubscribers(subscribers);
+  }
+
+  async publish(events: DomainEvent[]): Promise<void> {
+    const executions: unknown[] = [];
+
+    events.forEach((event) => {
+      const subscribers = this.subscriptions.get(event.eventName);
+      if (subscribers) {
+        subscribers.forEach((subscriber) => {
+          executions.push(subscriber(event));
+        });
+      }
+    });
+
+    await Promise.all(executions).catch((error) => {
+      console.error("Executing subscriptions:", error);
+    });
+  }
+
+  private registerSubscribers(subscribers: DomainEventSubscriber<DomainEvent>[]): void {
+    subscribers.forEach((subscriber) => {
+      subscriber.subscribedTo().forEach((event) => {
+        this.subscribe(event.eventName, subscriber);
+      });
+    });
+  }
+
+  private subscribe(eventName: string, subscriber: DomainEventSubscriber<DomainEvent>): void {
+    const current = this.subscriptions.get(eventName);
+    const handler = subscriber.on.bind(subscriber);
+    if (current) {
+      current.push(handler);
+    } else {
+      this.subscriptions.set(eventName, [handler]);
+    }
+  }
+}
 ```
 
-**Practical heuristic:** Keep `EventBus` and `DomainEvent` in `shared/domain/event/` — they are the only shared kernel between bounded contexts inside the same process.
+**Key design decisions in `InMemoryEventBus`:**
+- Subscribers are registered at construction time — no runtime `addSubscriber()` calls.
+- The `Map` key is `event.eventName` (a string constant on the event class), not the class reference — this survives serialization boundaries.
+- `Promise.all` dispatches all handlers concurrently per `publish()` call. Errors in one handler do not block others but are logged.
+- The same `publish()` signature works for both in-memory and broker-backed implementations — the use case never changes.
+
+**Practical heuristic:** Keep `EventBus`, `DomainEvent`, and `DomainEventSubscriber` in `shared/domain/event/` — they are the only shared kernel between bounded contexts inside the same process.
+
+---
+
+## Aggregate Reconstruction: fromPrimitives and toPrimitives
+
+**Intent:** Separate the path that creates new aggregates (triggering domain events) from the path that restores existing aggregates from storage (no events raised).
+
+**How it works:** The aggregate has two static factory methods: `create()` for the first-time creation path (raises domain events) and `fromPrimitives()` for rehydration from the database (does NOT raise events). The plain `new` constructor is always `private`, forcing all callers through one of the two factories.
+
+The repository calls `fromPrimitives()` on reads and persists via `toPrimitives()` — a symmetric method returning a plain object. This means the persistence layer never touches value objects directly; it works with plain primitives.
+
+**Example:**
+```typescript
+export class User extends AggregateRoot {
+  private constructor(        // ← private: never called directly
+    public readonly id: UserId,
+    private readonly name: UserName,
+    private readonly email: UserEmail,
+    private readonly profilePicture: UserProfilePicture,
+  ) {
+    super();
+  }
+
+  // Creation path — raises domain event
+  static create(id: string, name: string, email: string, profilePicture: string): User {
+    const user = new User(
+      new UserId(id),
+      new UserName(name),
+      new UserEmail(email),
+      new UserProfilePicture(profilePicture),
+    );
+    user.record(new UserRegisteredDomainEvent(id, name, email, profilePicture));
+    return user;
+  }
+
+  // Rehydration path — no events
+  static fromPrimitives(primitives: UserPrimitives): User {
+    return new User(
+      new UserId(primitives.id),
+      new UserName(primitives.name),
+      new UserEmail(primitives.email),
+      new UserProfilePicture(primitives.profilePicture),
+    );
+  }
+
+  // Serialization to persistence
+  toPrimitives(): UserPrimitives {
+    return {
+      id: this.id.value,
+      name: this.name.value,
+      email: this.email.value,
+      profilePicture: this.profilePicture.value,
+    };
+  }
+}
+```
+
+**Practical heuristic:** If a `new User()` call appears anywhere outside the two static factories, that is a bug — the constructor must be `private`. Events must only be raised in `create()` and other named mutating methods, never in `fromPrimitives()`.
 
 ---
 

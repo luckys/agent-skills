@@ -303,6 +303,70 @@ class Product:
 
 ---
 
+---
+
+## EnumValueObject — Typed Enum Wrappers
+
+**Intent:** When a domain concept is a closed set of values (status, operator, category), wrap the enum in a value object to validate that only legal values can be constructed.
+
+**How it works:** `EnumValueObject<T>` extends `ValueObject<T>`. Its constructor receives the valid values list and throws if the given value is not in that list. Concrete classes add a `fromValue(string)` factory for deserialization and domain-specific helpers.
+
+**Example (from Criteria pattern):**
+```typescript
+// src/Contexts/Shared/domain/criteria/FilterOperator.ts
+export enum Operator {
+  EQUAL = '=',
+  NOT_EQUAL = '!=',
+  GT = '>',
+  LT = '<',
+  CONTAINS = 'CONTAINS',
+  NOT_CONTAINS = 'NOT_CONTAINS'
+}
+
+export class FilterOperator extends EnumValueObject<Operator> {
+  constructor(value: Operator) {
+    super(value, Object.values(Operator));
+  }
+
+  static fromValue(value: string): FilterOperator {
+    for (const operatorValue of Object.values(Operator)) {
+      if (value === operatorValue.toString()) {
+        return new FilterOperator(operatorValue);
+      }
+    }
+    throw new InvalidArgumentError(`The filter operator ${value} is invalid`);
+  }
+
+  // Domain-specific helper encapsulated on the VO
+  public isPositive(): boolean {
+    return this.value !== Operator.NOT_EQUAL && this.value !== Operator.NOT_CONTAINS;
+  }
+
+  static equal() { return this.fromValue(Operator.EQUAL); }
+}
+```
+
+**Practical heuristic:** Anywhere you see a string or number used as a discriminant (`if (status === 'active')`) is a candidate for `EnumValueObject`. The enum is the valid set; the VO is the validator and the domain-logic host.
+
+---
+
+## Nullable<T> — Explicit Optional Type
+
+**Intent:** Make optionality visible in the type signature using a shared utility type rather than raw `T | null | undefined`.
+
+**Example:**
+```typescript
+// src/Contexts/Shared/domain/Nullable.ts
+export type Nullable<T> = T | null | undefined;
+
+// Repository return — caller must handle absence explicitly
+async findById(id: CourseId): Promise<Nullable<Course>>;
+```
+
+**Practical heuristic:** Prefer `Nullable<T>` over `T | null` for domain return types. It signals "this is intentionally optional" and makes it searchable when you need to tighten optionality later.
+
+---
+
 ## Related Skills
 
 - `oop-best-practices` — core value object principles and basic patterns

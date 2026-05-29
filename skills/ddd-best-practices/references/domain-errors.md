@@ -4,6 +4,48 @@ How to model failures that happen inside the domain in a maintainable, explicit,
 
 ---
 
+## DomainError Abstract Base Class
+
+**Intent:** Provide a common base for all domain errors that enables type-safe catch blocks, structured serialization for API responses, and infrastructure-level error mapping without parsing message strings.
+
+**How it works:** `DomainError` extends `Error` and declares two abstract fields: `type` (a stable machine-readable error code) and `message` (a human-readable description). The `toPrimitives()` method serializes the error into a structured object that the delivery layer can return as a JSON response body. Every concrete domain error extends `DomainError`, not raw `Error`.
+
+**Example:**
+```typescript
+// shared/domain/DomainError.ts
+export abstract class DomainError extends Error {
+  abstract type: string;
+  abstract message: string;
+
+  toPrimitives(): { type: string; description: string; data: Record<string, unknown> } {
+    const props = Object.entries(this).filter(([key]) => key !== "type" && key !== "message");
+
+    return {
+      type: this.type,
+      description: this.message,
+      data: props.reduce((acc, [key, value]) => ({ ...acc, [key]: value }), {}),
+    };
+  }
+}
+
+// Concrete domain error — extends DomainError, not plain Error
+export class UserDoesNotExistError extends DomainError {
+  type = "UserDoesNotExistError";
+  message: string;
+
+  constructor(public readonly id: string) {
+    super(`The user ${id} does not exist`);
+    this.message = `The user ${id} does not exist`;
+  }
+}
+```
+
+**Why `type` instead of relying on `constructor.name`:** Minification renames classes in production builds. A stable string literal in `type` survives bundling. Infrastructure error-mapping uses `error.constructor.name` only in development-mode utilities — the `type` field is the production-safe key.
+
+**Practical heuristic:** All domain errors extend `DomainError`. All infrastructure exceptions extend plain `Error`. Never catch a `DomainError` in the infrastructure layer — let it propagate to the delivery layer.
+
+---
+
 ## Typed Domain Errors (Exceptions as Domain Concepts)
 
 **Intent:** Give each domain failure its own type so callers can distinguish between them without parsing error messages.
@@ -154,6 +196,185 @@ export class UserFinder {
 ```
 
 **Practical heuristic:** Never return `null` from a domain finder — throw a typed error. `null` forces callers to null-check everywhere; a typed error carries domain meaning and is caught in one place.
+
+---
+
+## Delivery Layer Helpers: executeWithErrorHandling and executeWithMappedErrorHandling
+
+**Intent:** Eliminate repetitive try/catch boilerplate in API route handlers by centralizing domain-error-to-HTTP-status mapping in two reusable infrastructure utilities.
+
+**How it works:** Both helpers wrap the use-case call in a try/catch. If the caught error is a `DomainError`, they apply a mapping to produce the correct HTTP status. Unrecognized errors fall through as 500.
+
+`executeWithErrorHandling` accepts a callback `onError(error)` that returns a `NextResponse | void` — flexible for single-controller customization. `executeWithMappedErrorHandling` accepts a record `{ ErrorClassName: httpStatus }` — better for controllers that handle multiple error types uniformly.
+
+**Example:**
+```typescript
+// executeWithErrorHandling — flexible per-handler callback
+export async function executeWithErrorHandling(
+  fn: () => Promise<NextResponse>,
+  onError: (error: DomainError) => NextResponse | void = () => undefined,
+): Promise<NextResponse> {
+  try {
+    return await fn();
+  } catch (error: unknown) {
+    if (error instanceof DomainError) {
+      const response = onError(error);
+      if (response) return response;
+    }
+    return HttpNextResponse.internalServerError();
+  }
+}
+
+// executeWithMappedErrorHandling — table-driven mapping
+export async function executeWithMappedErrorHandling(
+  fn: () => Promise<NextResponse>,
+  errorMap: Record<string, number> = {},
+): Promise<NextResponse> {
+  try {
+    return await fn();
+  } catch (error: unknown) {
+    if (error instanceof DomainError && errorMap[error.constructor.name]) {
+      return HttpNextResponse.domainError(error, errorMap[error.constructor.name]);
+    }
+    return HttpNextResponse.internalServerError();
+  }
+}
+
+// Usage in a Next.js route handler
+export async function GET(_req: NextRequest, { params }: { params: { id: string } }) {
+  return executeWithMappedErrorHandling(
+    () => userFinder.find(params.id).then((u) => HttpNextResponse.ok(u)),
+    { UserDoesNotExistError: 404 },
+  );
+}
+```
+
+**Practical heuristic:** Use `executeWithMappedErrorHandling` as the default — the error map is self-documenting and easy to extend. Switch to `executeWithErrorHandling` only when the handler needs custom response bodies that go beyond a status code.
+
+---
+
+## Functional Error Handling: Either and Result Types
+
+**Intent:** Return errors as values instead of throwing exceptions, making the error path explicit in the type signature and enabling composition without try/catch.
+
+**How it works:** Source: CodelyTV `domain_modeling-errors-course` chapter 05.
+
+`Either<L, R>` is a generic discriminated union: `Left<L>` carries the error case, `Right<R>` carries the success case. It is fully generic — neither side is constrained to a specific base class. `Result<O, E extends DomainError>` is a narrowed variant where the error side is constrained to `DomainError` — useful when you only need to model domain errors, not arbitrary left types.
+
+Both expose `map()`, `fold()`, `isLeft()/isRight()` (or `isOk()/isError()`), and safe unwrapping via `get()` and `getError()`/`getLeft()`.
+
+**Full Either implementation:**
+```typescript
+type Left<L> = { kind: "left"; leftValue: L };
+type Right<R> = { kind: "right"; rightValue: R };
+
+export class Either<L, R> {
+  private constructor(private readonly value: Left<L> | Right<R>) {}
+
+  static left<L, R>(value: L): Either<L, R> {
+    return new Either<L, R>({ kind: "left", leftValue: value });
+  }
+
+  static right<L, R>(value: R): Either<L, R> {
+    return new Either<L, R>({ kind: "right", rightValue: value });
+  }
+
+  isLeft(): boolean { return this.value.kind === "left"; }
+  isRight(): boolean { return this.value.kind === "right"; }
+
+  get(): R {
+    return this.fold(
+      () => { throw new Error("Cannot get right value from Left Either"); },
+      (r) => r,
+    );
+  }
+
+  getLeft(): L {
+    return this.fold(
+      (l) => l,
+      () => { throw new Error("Cannot get left value from Right Either"); },
+    );
+  }
+
+  map<T>(fn: (r: R) => T): Either<L, T> {
+    return this.fold(
+      (l) => Either.left(l),
+      (r) => Either.right(fn(r)),
+    );
+  }
+
+  fold<LR, RR>(leftFn: (l: L) => LR, rightFn: (r: R) => RR): LR | RR {
+    switch (this.value.kind) {
+      case "left":  return leftFn(this.value.leftValue);
+      case "right": return rightFn(this.value.rightValue);
+    }
+  }
+}
+```
+
+**Full Result implementation (domain-error constrained):**
+```typescript
+import { DomainError } from "./DomainError";
+
+type Ok<O> = { kind: "ok"; okValue: O };
+type Err<E extends DomainError> = { kind: "error"; errorValue: E };
+
+export class Result<O, E extends DomainError> {
+  private constructor(private readonly value: Ok<O> | Err<E>) {}
+
+  static ok<O, E extends DomainError>(value: O): Result<O, E> {
+    return new Result<O, E>({ kind: "ok", okValue: value });
+  }
+
+  static error<O, E extends DomainError>(value: E): Result<O, E> {
+    return new Result<O, E>({ kind: "error", errorValue: value });
+  }
+
+  isOk(): boolean { return this.value.kind === "ok"; }
+  isError(): boolean { return this.value.kind === "error"; }
+
+  get(): O {
+    return this.fold(
+      (ok) => ok,
+      () => { throw new Error("Cannot get ok value from error Result"); },
+    );
+  }
+
+  getError(): E {
+    return this.fold(
+      () => { throw new Error("Cannot get error value from ok Result"); },
+      (err) => err,
+    );
+  }
+
+  map<T>(fn: (ok: O) => T): Result<T, E> {
+    return this.fold(
+      (ok) => Result.ok(fn(ok)),
+      (err) => Result.error(err),
+    );
+  }
+
+  fold<ER, OR>(okFn: (ok: O) => OR, errorFn: (err: E) => ER): ER | OR {
+    switch (this.value.kind) {
+      case "ok":    return okFn(this.value.okValue);
+      case "error": return errorFn(this.value.errorValue);
+    }
+  }
+}
+```
+
+**Either vs Result — when to use which:**
+| | `Either<L, R>` | `Result<O, E extends DomainError>` |
+|---|---|---|
+| Error type constraint | Unconstrained | Must extend `DomainError` |
+| Use when | Mixed error types, FP pipelines | Pure domain-error returns |
+| Interop | General purpose | Works directly with `DomainError.toPrimitives()` |
+
+**When to prefer throw vs. return Either/Result:**
+- **Throw (default):** Use exceptions for failures that are exceptional — invariant violations, infrastructure errors. The delivery layer catches and maps to HTTP status. This is the pattern used throughout the CodelyTV courses.
+- **Return Either/Result:** Use when the caller must handle both paths in the same function without try/catch — common in functional pipelines, validation chains, or when multiple errors can accumulate. Avoid mixing: pick one style per bounded context and be consistent.
+
+**Practical heuristic:** Start with throw-based domain errors. Introduce `Either` or `Result` only when try/catch nesting makes the code unreadable or when the caller genuinely needs to compose multiple fallible operations without exception control flow.
 
 ---
 

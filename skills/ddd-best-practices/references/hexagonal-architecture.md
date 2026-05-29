@@ -453,3 +453,131 @@ describe('createCourse use case', () => {
 ```
 
 **Practical heuristic:** If your use case test imports anything from a browser API, a framework, or a network library, the hexagon boundary is broken and the test is testing more than one thing. Fix the boundary first, then the test becomes trivial.
+
+---
+
+### React Wiring: App as Configurator
+
+**Intent:** Wire the concrete repository into the React component tree in `App.tsx`, passing it down through a Context provider so all child components receive it without knowing its implementation.
+
+**How it works:** `App.tsx` acts as the configurator. It creates the concrete adapter (e.g., `LocalStorageCourseRepository`) and passes it as a prop to the Context provider. The provider stores the repository reference and closes over it in the use case calls. Child components consume the context and call use case functions — they never import or know about the repository.
+
+**Three-file pattern:**
+
+```typescript
+// --- src/App.tsx (the configurator) ---
+import { createLocalStorageCourseRepository } from "./modules/courses/infrastructure/LocalStorageCourseRepository";
+import { CoursesContextProvider } from "./sections/courses/CoursesContext";
+import { CoursesList } from "./sections/courses/CoursesList";
+import { CreateCourseForm } from "./sections/courses/CreateCourseForm";
+
+export function App() {
+  // Configurator: instantiate the concrete adapter here, nowhere else
+  const repository = createLocalStorageCourseRepository();
+
+  return (
+    <CoursesContextProvider repository={repository}>
+      <CoursesList />
+      <CreateCourseForm />
+    </CoursesContextProvider>
+  );
+}
+
+// --- src/sections/courses/CoursesContext.tsx (the driving adapter) ---
+import React, { useContext, useEffect, useState } from "react";
+import { createCourse } from "../../modules/courses/application/create/createCourse";
+import { getAllCourses } from "../../modules/courses/application/get-all/getAllCourses";
+import { Course } from "../../modules/courses/domain/Course";
+import { CourseRepository } from "../../modules/courses/domain/CourseRepository";
+
+export const CoursesContext = React.createContext({} as ContextState);
+
+// Provider receives the repository as a prop — it is the only component
+// that knows which use case to call; children know nothing about repositories
+export const CoursesContextProvider = ({
+  children,
+  repository,
+}: React.PropsWithChildren<{ repository: CourseRepository }>) => {
+  const [courses, setCourses] = useState<Course[]>([]);
+
+  function create({ title, imageUrl }: { title: string; imageUrl: string }) {
+    const id = crypto.randomUUID();
+    createCourse(repository, { id, title, imageUrl }); // use case gets repo as argument
+    getCourses();
+  }
+
+  function getCourses() {
+    getAllCourses(repository).then(setCourses);
+  }
+
+  useEffect(() => { getCourses(); }, []);
+
+  return (
+    <CoursesContext.Provider value={{ courses, createCourse: create }}>
+      {children}
+    </CoursesContext.Provider>
+  );
+};
+
+export const useCoursesContext = () => useContext(CoursesContext);
+
+// --- src/modules/courses/application/create/createCourse.ts ---
+import { Course, ensureCourseIsValid } from "../../domain/Course";
+import { CourseRepository } from "../../domain/CourseRepository";
+
+// Use case: accepts repository as parameter (manual DI by argument)
+export async function createCourse(
+  courseRepository: CourseRepository,
+  course: Course,
+): Promise<void> {
+  ensureCourseIsValid(course);
+  await courseRepository.save(course);
+}
+
+// --- src/modules/courses/application/get-all/getAllCourses.ts ---
+import { Course } from "../../domain/Course";
+import { CourseRepository } from "../../domain/CourseRepository";
+
+export async function getAllCourses(courseRepository: CourseRepository): Promise<Course[]> {
+  return courseRepository.getAll();
+}
+```
+
+**Practical heuristic:** `App.tsx` is the only file that imports a concrete infrastructure class. Every other file imports only domain types, port interfaces, or use case functions. If a component imports a concrete repository, the configurator boundary is broken.
+
+---
+
+### Testing the React Driving Adapter
+
+**Intent:** Test a component in isolation by passing an inline mock object that satisfies the repository port interface — no need for any real infrastructure.
+
+**How it works:** The test renders `CoursesContextProvider` with a hand-crafted object literal that implements `CourseRepository`. Because the provider receives the repository as a prop, the test can pass jest spy functions and assert they were called. This is the equivalent of passing a test double to the app's constructor in a backend context.
+
+```typescript
+// tests/sections/courses/CreateCourseFormWithMockedRepository.spec.tsx
+import { render, screen } from "@testing-library/react";
+import userEvent from "@testing-library/user-event";
+import { CoursesContextProvider } from "../../../src/sections/courses/CoursesContext";
+import { CreateCourseForm } from "../../../src/sections/courses/CreateCourseForm";
+
+describe("CreateCourseForm component", () => {
+  it("calls repository.save when form is submitted", async () => {
+    const save = jest.fn();
+
+    render(
+      // Inline mock satisfies CourseRepository port — no framework, no localStorage
+      <CoursesContextProvider repository={{ save, get: jest.fn(), getAll: jest.fn() }}>
+        <CreateCourseForm />
+      </CoursesContextProvider>
+    );
+
+    await userEvent.type(screen.getByLabelText(/title/i), "Hexagonal Architecture");
+    await userEvent.type(screen.getByLabelText(/image/i), "http://example.com/img.png");
+    await userEvent.click(screen.getByText(/create course/i));
+
+    expect(save).toHaveBeenCalled();
+  });
+});
+```
+
+**Practical heuristic:** Component tests that need a repository should never call `createLocalStorageCourseRepository()` or `new HttpCourseRepository()`. Pass an inline mock object directly as the `repository` prop. The test acts as the configurator.

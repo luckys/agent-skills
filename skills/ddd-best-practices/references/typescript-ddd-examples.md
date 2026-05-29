@@ -460,3 +460,324 @@ export class MongoCourseRepository
 ```
 
 **Practical heuristic:** The concrete adapter is the only place where `toPrimitives()` and `fromPrimitives()` are called. Everything else in the system works with typed domain objects.
+
+---
+
+## Command / Query / Response — Marker Types
+
+**Intent:** Give the bus infrastructure type-safe contracts without introducing coupling to specific command or query classes.
+
+**How it works:** `Command` and `Query` are abstract base classes with no fields — they are marker types. Concrete commands extend `Command` and add their primitive fields. `Response` is an empty interface that concrete response DTOs implement. The bus then uses these as generic constraints.
+
+**Example:**
+```typescript
+// src/Contexts/Shared/domain/Command.ts
+export abstract class Command {}
+
+// src/Contexts/Shared/domain/Query.ts
+export abstract class Query {}
+
+// src/Contexts/Shared/domain/Response.ts
+export interface Response {}
+
+// Concrete command (carries flat primitives only — no Value Objects)
+// src/Contexts/Mooc/Courses/domain/CreateCourseCommand.ts
+type Params = { id: string; name: string; duration: string };
+
+export class CreateCourseCommand extends Command {
+  id: string;
+  name: string;
+  duration: string;
+
+  constructor({ id, name, duration }: Params) {
+    super();
+    this.id = id;
+    this.name = name;
+    this.duration = duration;
+  }
+}
+```
+
+**Practical heuristic:** Commands carry flat primitives only — never Value Objects. The Command Handler is the boundary where primitives are wrapped into Value Objects before being passed to the use case.
+
+---
+
+## CommandBus / QueryBus — CQRS Bus Interfaces
+
+**Intent:** Decouple the controller (driver adapter) from the use case by routing through a bus. The controller does not need to know which handler exists — it only dispatches a command or queries with a query.
+
+**How it works:** `CommandBus` has one method — `dispatch(command)` — which is fire-and-forget (`Promise<void>`). `QueryBus` has one method — `ask<R>(query)` — which returns a typed `Response`. Both are interfaces implemented in infrastructure.
+
+**Example:**
+```typescript
+// src/Contexts/Shared/domain/CommandBus.ts
+export interface CommandBus {
+  dispatch(command: Command): Promise<void>;
+}
+
+// src/Contexts/Shared/domain/QueryBus.ts
+export interface QueryBus {
+  ask<R extends Response>(query: Query): Promise<R>;
+}
+
+// src/Contexts/Shared/domain/CommandHandler.ts
+export interface CommandHandler<T extends Command> {
+  subscribedTo(): Command;  // returns the Command class (not instance)
+  handle(command: T): Promise<void>;
+}
+
+// src/Contexts/Shared/domain/QueryHandler.ts
+export interface QueryHandler<Q extends Query, R extends Response> {
+  subscribedTo(): Query;
+  handle(query: Q): Promise<R>;
+}
+```
+
+**Practical heuristic:** CQRS split is at the bus level: commands mutate state and return nothing; queries read state and return a response. Never mix the two in one handler.
+
+---
+
+## CommandBus / QueryBus — In-Memory Implementations
+
+**Intent:** Provide a synchronous, in-process bus for development and testing. The registry (`CommandHandlers`, `QueryHandlers`) maps command/query classes to their handlers.
+
+**How it works:** The registry is a `Map<Command, CommandHandler>`. Handlers register themselves by returning their command class from `subscribedTo()`. The bus looks up the handler by the command's constructor at dispatch time, throwing a `CommandNotRegisteredError` if not found.
+
+**Example:**
+```typescript
+// src/Contexts/Shared/infrastructure/CommandBus/CommandHandlers.ts
+export class CommandHandlers extends Map<Command, CommandHandler<Command>> {
+  constructor(commandHandlers: Array<CommandHandler<Command>>) {
+    super();
+    commandHandlers.forEach(commandHandler => {
+      this.set(commandHandler.subscribedTo(), commandHandler);
+    });
+  }
+
+  public get(command: Command): CommandHandler<Command> {
+    const commandHandler = super.get(command.constructor);
+    if (!commandHandler) {
+      throw new CommandNotRegisteredError(command);
+    }
+    return commandHandler;
+  }
+}
+
+// src/Contexts/Shared/infrastructure/CommandBus/InMemoryCommandBus.ts
+export class InMemoryCommandBus implements CommandBus {
+  constructor(private commandHandlers: CommandHandlers) {}
+
+  async dispatch(command: Command): Promise<void> {
+    const handler = this.commandHandlers.get(command);
+    await handler.handle(command);
+  }
+}
+
+// src/Contexts/Shared/infrastructure/QueryBus/InMemoryQueryBus.ts
+export class InMemoryQueryBus implements QueryBus {
+  constructor(private queryHandlersInformation: QueryHandlers) {}
+
+  async ask<R extends Response>(query: Query): Promise<R> {
+    const handler = this.queryHandlersInformation.get(query);
+    return (await handler.handle(query)) as Promise<R>;
+  }
+}
+```
+
+**Practical heuristic:** The lookup key is `command.constructor` (the class itself), not the command instance. This is why `subscribedTo()` returns the class: `return CreateCourseCommand;` not `return new CreateCourseCommand(...)`.
+
+---
+
+## Nullable Type Utility
+
+**Intent:** Express optional domain values clearly without ambiguity between `null` and `undefined`.
+
+**Example:**
+```typescript
+// src/Contexts/Shared/domain/Nullable.ts
+export type Nullable<T> = T | null | undefined;
+
+// Usage in a repository return type
+async findById(id: CourseId): Promise<Nullable<Course>> { ... }
+```
+
+**Practical heuristic:** Use `Nullable<T>` for values that may legitimately be absent. This makes the optionality visible in the type signature — callers must explicitly handle the null/undefined case.
+
+---
+
+## Criteria Pattern — Flexible Repository Queries
+
+**Intent:** Express repository search conditions as domain objects (not raw SQL or query strings) so the domain layer can construct complex queries without depending on infrastructure.
+
+**How it works:** `Criteria` composes `Filters` (a list of `Filter` objects) and an `Order`. Each `Filter` holds a `FilterField` (the attribute name), a `FilterOperator` (enum: `=`, `!=`, `>`, `<`, `CONTAINS`, `NOT_CONTAINS`), and a `FilterValue`. Repository adapters translate `Criteria` to their native query language (SQL WHERE clauses, Elasticsearch DSL, etc.).
+
+**Example:**
+```typescript
+// src/Contexts/Shared/domain/criteria/Criteria.ts
+export class Criteria {
+  readonly filters: Filters;
+  readonly order: Order;
+  readonly limit?: number;
+  readonly offset?: number;
+
+  constructor(filters: Filters, order: Order, limit?: number, offset?: number) {
+    this.filters = filters;
+    this.order = order;
+    this.limit = limit;
+    this.offset = offset;
+  }
+
+  public hasFilters(): boolean {
+    return this.filters.filters.length > 0;
+  }
+}
+
+// src/Contexts/Shared/domain/criteria/Filter.ts
+export class Filter {
+  readonly field: FilterField;
+  readonly operator: FilterOperator;
+  readonly value: FilterValue;
+
+  constructor(field: FilterField, operator: FilterOperator, value: FilterValue) { ... }
+
+  static fromValues(values: Map<string, string>): Filter {
+    const field = values.get('field');
+    const operator = values.get('operator');
+    const value = values.get('value');
+    if (!field || !operator || !value) {
+      throw new InvalidArgumentError('The filter is invalid');
+    }
+    return new Filter(
+      new FilterField(field),
+      FilterOperator.fromValue(operator),
+      new FilterValue(value)
+    );
+  }
+}
+
+// src/Contexts/Shared/domain/criteria/FilterOperator.ts
+export enum Operator {
+  EQUAL = '=',
+  NOT_EQUAL = '!=',
+  GT = '>',
+  LT = '<',
+  CONTAINS = 'CONTAINS',
+  NOT_CONTAINS = 'NOT_CONTAINS'
+}
+
+export class FilterOperator extends EnumValueObject<Operator> {
+  static fromValue(value: string): FilterOperator { ... }
+  static equal() { return this.fromValue(Operator.EQUAL); }
+  public isPositive(): boolean {
+    return this.value !== Operator.NOT_EQUAL && this.value !== Operator.NOT_CONTAINS;
+  }
+}
+```
+
+**Practical heuristic:** The domain builds `Criteria` objects; infrastructure translates them. No `WHERE` clause or Elasticsearch DSL ever appears in the domain layer.
+
+---
+
+## Object Mother Pattern — Test Data Factories
+
+**Intent:** Centralize test data creation so tests stay short and readable. Object Mothers generate valid, random instances of domain objects. Each domain concept gets its own Mother class.
+
+**How it works:** Each Mother has `create(explicit params)` and `random()` static methods. `random()` delegates to child Mothers for each field. A `WordMother` (or `MotherCreator`) provides random primitives (UUIDs, words, numbers). The test itself only specifies what is relevant to the test scenario — everything else is random.
+
+**Example:**
+```typescript
+// tests/Contexts/Mooc/Courses/domain/CourseMother.ts
+export class CourseMother {
+  static create(id: CourseId, name: CourseName, duration: CourseDuration): Course {
+    return new Course(id, name, duration);
+  }
+
+  static from(command: CreateCourseCommand): Course {
+    return this.create(
+      CourseIdMother.create(command.id),
+      CourseNameMother.create(command.name),
+      CourseDurationMother.create(command.duration)
+    );
+  }
+
+  static random(): Course {
+    return this.create(
+      CourseIdMother.random(),
+      CourseNameMother.random(),
+      CourseDurationMother.random()
+    );
+  }
+}
+
+// tests/Contexts/Mooc/Courses/domain/CourseNameMother.ts
+export class CourseNameMother {
+  static create(value: string): CourseName { return new CourseName(value); }
+  static random(): CourseName { return this.create(WordMother.random({ maxLength: 20 })); }
+  static invalidName(): string { return 'a'.repeat(40); }
+}
+
+// tests/Contexts/Mooc/Courses/application/CreateCourseCommandMother.ts
+export class CreateCourseCommandMother {
+  static create(id: CourseId, name: CourseName, duration: CourseDuration): CreateCourseCommand {
+    return { id: id.value, name: name.value, duration: duration.value };
+  }
+
+  static random(): CreateCourseCommand {
+    return this.create(CourseIdMother.random(), CourseNameMother.random(), CourseDurationMother.random());
+  }
+
+  static invalid(): CreateCourseCommand {
+    return {
+      id: CourseIdMother.random().value,
+      name: CourseNameMother.invalidName(),  // 40 chars — exceeds limit
+      duration: CourseDurationMother.random().value
+    };
+  }
+}
+```
+
+**Practical heuristic:** Command Mothers produce flat primitives; Domain Mothers produce Value Objects. Keep them at the right layer — don't mix them.
+
+---
+
+## Unit Test Structure — Command Handler + Mock Repository + Mock EventBus
+
+**Intent:** Show the idiomatic test structure: inject mock repository and EventBus, use Object Mothers to build inputs and expectations, use assertion helpers on the mock to verify side effects.
+
+**Example:**
+```typescript
+// tests/Contexts/Mooc/Courses/application/CreateCourseCommandHandler.test.ts
+let repository: CourseRepositoryMock;
+let creator: CourseCreator;
+let eventBus: EventBusMock;
+let handler: CreateCourseCommandHandler;
+
+beforeEach(() => {
+  repository = new CourseRepositoryMock();
+  eventBus = new EventBusMock();
+  creator = new CourseCreator(repository, eventBus);
+  handler = new CreateCourseCommandHandler(creator);
+});
+
+describe('CreateCourseCommandHandler', () => {
+  it('should create a valid course', async () => {
+    const command = CreateCourseCommandMother.random();
+    const course = CourseMother.from(command);
+    const domainEvent = CourseCreatedDomainEventMother.fromCourse(course);
+
+    await handler.handle(command);
+
+    repository.assertSaveHaveBeenCalledWith(course);
+    eventBus.assertLastPublishedEventIs(domainEvent);
+  });
+
+  it('should throw error if course name length is exceeded', async () => {
+    expect(() => {
+      const command = CreateCourseCommandMother.invalid();
+      handler.handle(command);
+    }).toThrow(CourseNameLengthExceeded);
+  });
+});
+```
+
+**Practical heuristic:** The test follows the Arrange-Act-Assert pattern where all Arrange data comes from Mothers. Assertions are on the mock's recorded calls, not on return values. The mock's `assertSaveHaveBeenCalledWith` uses the same `equals()` logic as the Value Object — this is why VO equality matters in tests.
