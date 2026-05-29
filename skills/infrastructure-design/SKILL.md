@@ -1,6 +1,6 @@
 ---
 name: infrastructure-design
-description: Guidance for designing infrastructure components in layered applications. Use when implementing event buses, managing database transactions, designing caching strategies, building database views, or choosing between synchronous and asynchronous messaging patterns.
+description: Infrastructure pattern guidance for DDD and hexagonal architecture applications. Use when implementing an event bus (in-memory, DB-backed, RabbitMQ), applying the Outbox or Inbox pattern, managing database transactions with a TransactionalDecorator, designing cache-aside strategies with Redis, building database views or materialized views, or choosing between synchronous and asynchronous event delivery.
 ---
 
 # Infrastructure Design
@@ -35,7 +35,7 @@ Practical infrastructure patterns for layered (hexagonal/DDD) applications. Each
 
 ## Related Skills
 
-- `ddd-architecture` — bounded context design and aggregate boundaries
+- `ddd-best-practices` — bounded context design and aggregate boundaries
 - `design-patterns-best-practices` — Decorator for transparent transaction/cache wrapping
 - `oop-best-practices` — domain interface design and dependency inversion
 

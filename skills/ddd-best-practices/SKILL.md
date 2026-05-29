@@ -1,6 +1,6 @@
 ---
 name: ddd-best-practices
-description: Domain-Driven Design guidance for modeling complex domains. Use when designing Bounded Contexts, defining Aggregates, choosing between Entities and Value Objects, mapping Context relationships, applying CQRS or Event Sourcing, building a Ubiquitous Language, or reviewing whether domain logic leaks into infrastructure layers.
+description: Domain-Driven Design guidance for modeling complex domains. Use when designing Bounded Contexts or Subdomains, defining Aggregates or Aggregate Roots, choosing between Entities and Value Objects, applying Context Mapping patterns (ACL, Open Host Service, Partnership), implementing CQRS or Event Sourcing, building a Ubiquitous Language, applying Hexagonal Architecture (Ports & Adapters), or reviewing whether domain logic leaks into infrastructure or application layers.
 ---
 
 # DDD Best Practices
@@ -83,10 +83,10 @@ One Repository per Aggregate Root. Never expose a Repository for child entities 
 - Read `references/context-mapping.md` for Context Map patterns: Partnership, Shared Kernel, Customer-Supplier, Conformist, ACL, Open Host Service, Published Language.
 - Read `references/cqrs-and-events.md` for CQRS, Event Sourcing, Event Storming, and process managers.
 - Read `references/hexagonal-architecture.md` for Ports & Adapters: primary/driven ports, adapters, dependency direction, test strategy, Walking Skeleton implementation, and comparison with Clean/Onion Architecture.
-- Read `references/ddd-in-practice.md` for practical DDD application and PHP implementation examples. Part I: Knowledge Crunching, Impact Mapping, Model Exploration Whirlpool, Domain Vision Statement, Application Service Layer, team topology, DDD adoption anti-patterns, conditions for success. Part II: PHP code examples for Value Objects, Entities, Aggregate Root, Domain Events, Repository, Domain Service, Application Service, Specification.
+- Read `references/ddd-in-practice.md` for practical DDD application: discovery process (Impact Mapping, Model Exploration Whirlpool), team topology, DDD adoption anti-patterns, and PHP implementation examples (Value Objects, Entities, Aggregate Root, Application Service, Specification).
 - Read `references/domain-errors.md` for typed domain error patterns: one error class per failure, error layer ownership, Result type for domain operations, common DDD problems with domain events and errors (ordering, duplication, stuck events).
 - Read `references/read-models.md` for read model patterns: aggregate.toPrimitives() vs dedicated read models, CQRS read side, use case structure for queries, projection handlers (DomainEventSubscriber), idempotency, synchronous vs asynchronous projections.
-- Read `references/typescript-ddd-examples.md` for TypeScript DDD skeleton: folder structure by Bounded Context, ValueObject/Entity/AggregateRoot base classes, DomainEvent base, static factory vs reconstitution pattern, use case structure, and event bus interface.
+- Read `references/typescript-ddd-examples.md` for the TypeScript DDD skeleton: folder structure by Bounded Context, base classes (ValueObject, Entity, AggregateRoot, DomainEvent), static factory vs reconstitution, use case structure, CommandBus/QueryBus, Object Mother, and Criteria pattern.
 
 ## Related Skills
 

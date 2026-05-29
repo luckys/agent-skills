@@ -1,6 +1,6 @@
 ---
 name: oop-best-practices
-description: Day-to-day coding guidance for writing and reviewing clean, maintainable object-oriented code. Use when naming classes and methods, defining object boundaries, introducing value objects, reducing method or class complexity, improving collaboration between objects, or writing new TypeScript, Java, C#, Python, Ruby, PHP, and similar object-oriented code.
+description: Day-to-day OOP guidance for writing and reviewing clean, maintainable code. Use when naming classes and methods, defining object boundaries, introducing value objects or first-class collections, applying Tell Don't Ask or Law of Demeter, enforcing Object Calisthenics, reducing cohesion problems, choosing between inheritance and composition, or reviewing SOLID violations in TypeScript, Java, C#, Python, Ruby, or PHP.
 ---
 
 # OOP Best Practices

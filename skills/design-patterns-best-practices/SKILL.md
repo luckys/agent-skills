@@ -1,6 +1,6 @@
 ---
 name: design-patterns-best-practices
-description: Practical guidance for selecting and applying design patterns in object-oriented systems. Use when deciding between composition and inheritance, introducing Strategy, State, Factory, Adapter, Decorator, or similar patterns, replacing conditionals with collaboration, or reviewing whether a pattern clarifies the model or adds accidental complexity.
+description: Pattern selection and application guidance for OO systems. Use when choosing a GoF pattern (Strategy, State, Observer, Command, Factory, Builder, Decorator, Proxy, Adapter, Composite, etc.), applying PoEAA enterprise patterns (Transaction Script, Service Layer, Data Mapper, Unit of Work, Repository, Gateway, DTO, Money, Special Case), implementing the Criteria pattern, applying Clean Architecture layers, or reviewing whether a pattern reduces or adds accidental complexity.
 ---
 
 # Design Patterns Best Practices
@@ -110,7 +110,7 @@ Use when you want to decouple business logic from data access and treat a collec
 - Read `references/behavioral-patterns.md` for Observer, Command, Template Method, Chain of Responsibility, Iterator, Mediator, Visitor, and Memento.
 - Read `references/creational-patterns.md` for Builder, Abstract Factory, Factory Method, Singleton, and Prototype trade-offs.
 - Read `references/structural-patterns.md` for Proxy, Facade, Bridge, Flyweight, and Adapter — including the Facade vs Adapter distinction.
-- Read `references/enterprise-patterns.md` for all ~51 PoEAA patterns: Domain Logic (Transaction Script, Domain Model, Table Module, Service Layer), Data Source (Table Data Gateway, Row Data Gateway, Active Record, Data Mapper), ORM Behavioral (Unit of Work, Identity Map, Lazy Load), ORM Structural (Identity Field, Foreign Key Mapping, Association Table Mapping, Dependent Mapping, Embedded Value, Serialized LOB, Single/Class/Concrete Table Inheritance, Inheritance Mappers, Metadata Mapping, Query Object, Repository), Web Presentation (MVC, Page Controller, Front Controller, Template View, Transform View, Two Step View, Application Controller), Distribution (Remote Facade, DTO), Concurrency (Optimistic/Pessimistic/Coarse-Grained/Implicit Lock), Session State (Client/Server/Database Session State), and Base Patterns (Gateway, Mapper, Layer Supertype, Separated Interface, Registry, Value Object, Money, Special Case, Plugin, Service Stub, Record Set).
+- Read `references/enterprise-patterns.md` for all 51 PoEAA patterns grouped by category: Domain Logic, Data Source, ORM Behavioral/Structural, Web Presentation, Distribution, Concurrency, Session State, and Base Patterns.
 - Read `references/patterns-in-practice.md` for practical heuristics on refactoring toward patterns, Observer lessons, Command Bus, Result pattern, and DI container internals.
 - Read `references/implementation-patterns.md` for Kent Beck's micro-level code patterns: naming, composed methods, guard clauses, value objects, lazy/eager initialization, collection accessors, and method objects.
 - Read `references/clean-architecture.md` for Clean Architecture layers (Entities, Use Cases, Interface Adapters, Frameworks), the Dependency Rule, Ports & Adapters, Skinny Controllers, and SOLID as architecture enablers.
