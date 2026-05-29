@@ -110,7 +110,9 @@ Use when you want to decouple business logic from data access and treat a collec
 
 - Read `references/pattern-selection-guide.md` for pattern-to-problem mapping.
 - Read `references/composition-vs-inheritance.md` for structural trade-offs.
-- Read `references/language-examples.md` for an index of language-specific example files (TypeScript, Java, Python, C#, Ruby, PHP).
+- Read `references/language-examples.md` for an index of language-specific example files (TypeScript, Java, Python, C#, Ruby, PHP, Go, Rust).
+- Read `references/go-examples.md` for Go examples (Strategy/State via interfaces, functional options as Builder, channels as Observer, Result via `(value, error)`).
+- Read `references/rust-examples.md` for Rust examples (traits as Strategy, enums as State/Visitor, trait objects for DI, Result<T,E>).
 - Read `references/behavioral-patterns.md` for Observer, Command, Template Method, Chain of Responsibility, Iterator, Mediator, Visitor, and Memento.
 - Read `references/creational-patterns.md` for Builder, Abstract Factory, Factory Method, Singleton, and Prototype trade-offs.
 - Read `references/structural-patterns.md` for Proxy, Facade, Bridge, Flyweight, and Adapter — including the Facade vs Adapter distinction.

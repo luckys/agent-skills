@@ -10,6 +10,8 @@ Use this file as an index to the language-specific example references.
 - `references/csharp-examples.md`
 - `references/ruby-examples.md`
 - `references/php-examples.md`
+- `references/go-examples.md`
+- `references/rust-examples.md`
 
 ## Shared Concept Set
 

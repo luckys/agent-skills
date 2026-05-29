@@ -44,6 +44,36 @@ class PartnerPricing implements PricingPolicy {
 }
 ```
 
+## After in Go
+
+```go
+type PricingPolicy interface {
+    Apply(subtotalInCents int) int
+}
+
+type StandardPricing struct{}
+type PremiumPricing  struct{}
+type PartnerPricing  struct{}
+
+func (StandardPricing) Apply(s int) int { return s }
+func (PremiumPricing) Apply(s int) int  { return s * 8 / 10 }
+func (PartnerPricing) Apply(s int) int  { return s * 85 / 100 }
+```
+
+## After in Rust
+
+```rust
+pub trait PricingPolicy { fn apply(&self, subtotal_in_cents: i64) -> i64; }
+
+pub struct StandardPricing;
+pub struct PremiumPricing;
+pub struct PartnerPricing;
+
+impl PricingPolicy for StandardPricing { fn apply(&self, s: i64) -> i64 { s } }
+impl PricingPolicy for PremiumPricing  { fn apply(&self, s: i64) -> i64 { s * 8 / 10 } }
+impl PricingPolicy for PartnerPricing  { fn apply(&self, s: i64) -> i64 { s * 85 / 100 } }
+```
+
 ## After in Java
 
 ```java
@@ -189,6 +219,56 @@ function printItems(order: Order): void {
 
 function printTotal(order: Order): void {
   console.log(`Total: ${order.items().total().value()}`)
+}
+```
+
+### After in Go
+
+```go
+func printOrderSummary(order Order) {
+    printHeader(order)
+    printItems(order)
+    printTotal(order)
+}
+
+func printHeader(order Order) {
+    fmt.Printf("Order: %s\n", order.ID())
+    fmt.Printf("Date: %s\n", order.Date())
+}
+
+func printItems(order Order) {
+    for _, item := range order.Items() {
+        fmt.Printf("  %s: %d\n", item.Name(), item.Price().Value())
+    }
+}
+
+func printTotal(order Order) {
+    fmt.Printf("Total: %d\n", order.Items().Total().Value())
+}
+```
+
+### After in Rust
+
+```rust
+fn print_order_summary(order: &Order) {
+    print_header(order);
+    print_items(order);
+    print_total(order);
+}
+
+fn print_header(order: &Order) {
+    println!("Order: {}", order.id());
+    println!("Date: {}", order.date());
+}
+
+fn print_items(order: &Order) {
+    for item in order.items() {
+        println!("  {}: {}", item.name(), item.price().value());
+    }
+}
+
+fn print_total(order: &Order) {
+    println!("Total: {}", order.items().total().value());
 }
 ```
 
@@ -371,6 +451,47 @@ class Order {
   id(): string { return this.orderId }
   customer(): Customer { return this._customer }
   itemCount(): number { return this.items.length }
+}
+```
+
+### After in Go
+
+```go
+type Customer struct {
+    name  string
+    email string
+}
+
+func (c Customer) Name() string  { return c.name }
+func (c Customer) Email() string { return c.email }
+
+type Order struct {
+    id       string
+    customer Customer
+    items    []OrderItem
+}
+
+func (o Order) ID() string           { return o.id }
+func (o Order) Customer() Customer   { return o.customer }
+func (o Order) ItemCount() int       { return len(o.items) }
+```
+
+### After in Rust
+
+```rust
+pub struct Customer { name: String, email: String }
+
+impl Customer {
+    pub fn name(&self) -> &str  { &self.name }
+    pub fn email(&self) -> &str { &self.email }
+}
+
+pub struct Order { id: String, customer: Customer, items: Vec<OrderItem> }
+
+impl Order {
+    pub fn id(&self) -> &str           { &self.id }
+    pub fn customer(&self) -> &Customer { &self.customer }
+    pub fn item_count(&self) -> usize  { self.items.len() }
 }
 ```
 
@@ -566,6 +687,45 @@ function sendNewsletter(email: EmailAddress): void {
 }
 ```
 
+### After in Go
+
+```go
+type EmailAddress struct{ value string }
+
+func NewEmailAddress(value string) (EmailAddress, error) {
+    if !strings.Contains(value, "@") {
+        return EmailAddress{}, errors.New("invalid email address")
+    }
+    return EmailAddress{value: value}, nil
+}
+
+func (e EmailAddress) String() string { return e.value }
+
+func registerUser(email EmailAddress) { userRepository.save(NewUser(email)) }
+func sendNewsletter(email EmailAddress) { mailer.send(email.String(), "Newsletter content") }
+```
+
+### After in Rust
+
+```rust
+pub struct EmailAddress(String);
+
+impl EmailAddress {
+    pub fn new(value: impl Into<String>) -> Result<Self, &'static str> {
+        let v = value.into();
+        if !v.contains('@') { return Err("invalid email address"); }
+        Ok(Self(v))
+    }
+}
+
+impl std::fmt::Display for EmailAddress {
+    fn fmt(&self, f: &mut std::fmt::Formatter) -> std::fmt::Result { write!(f, "{}", self.0) }
+}
+
+fn register_user(email: EmailAddress) { user_repository.save(User::new(email)); }
+fn send_newsletter(email: EmailAddress) { mailer.send(&email.to_string(), "Newsletter content"); }
+```
+
 ### After in Java
 
 ```java
@@ -740,6 +900,26 @@ class Rental {
 }
 ```
 
+### After in Go
+
+```go
+type Movie struct{ premium bool }
+func (m Movie) DailyRate() float64 { if m.premium { return 3.5 }; return 2.0 }
+
+type Rental struct { movie Movie; daysRented int }
+func (r Rental) Charge() float64 { return r.movie.DailyRate() * float64(r.daysRented) }
+```
+
+### After in Rust
+
+```rust
+pub struct Movie { premium: bool }
+impl Movie { pub fn daily_rate(&self) -> f64 { if self.premium { 3.5 } else { 2.0 } } }
+
+pub struct Rental { movie: Movie, days_rented: u32 }
+impl Rental { pub fn charge(&self) -> f64 { self.movie.daily_rate() * self.days_rented as f64 } }
+```
+
 ### After in Java
 
 ```java
@@ -902,6 +1082,28 @@ class Cart {
   private discount(): number {
     return this.baseAmount() > 100 ? this.baseAmount() * 0.1 : 0
   }
+}
+```
+
+### After in Go
+
+```go
+type Cart struct{ items []CartItem }
+
+func (c Cart) CalculateTotal() float64 { return c.baseAmount() - c.discount() }
+func (c Cart) baseAmount() float64     { s := 0.0; for _, i := range c.items { s += i.Price() }; return s }
+func (c Cart) discount() float64       { if c.baseAmount() > 100 { return c.baseAmount() * 0.1 }; return 0 }
+```
+
+### After in Rust
+
+```rust
+pub struct Cart { items: Vec<CartItem> }
+
+impl Cart {
+    pub fn calculate_total(&self) -> f64 { self.base_amount() - self.discount() }
+    fn base_amount(&self) -> f64 { self.items.iter().map(|i| i.price()).sum() }
+    fn discount(&self) -> f64 { if self.base_amount() > 100.0 { self.base_amount() * 0.1 } else { 0.0 } }
 }
 ```
 

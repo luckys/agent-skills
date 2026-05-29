@@ -91,6 +91,7 @@ One Repository per Aggregate Root. Never expose a Repository for child entities 
 - Read `references/domain-errors.md` for typed domain error patterns: one error class per failure, error layer ownership, Result type for domain operations, common DDD problems with domain events and errors (ordering, duplication, stuck events).
 - Read `references/read-models.md` for read model patterns: aggregate.toPrimitives() vs dedicated read models, CQRS read side, use case structure for queries, projection handlers (DomainEventSubscriber), idempotency, synchronous vs asynchronous projections.
 - Read `references/typescript-ddd-examples.md` for the TypeScript DDD skeleton: folder structure by Bounded Context, base classes (ValueObject, Entity, AggregateRoot, DomainEvent), static factory vs reconstitution, use case structure, CommandBus/QueryBus, Object Mother, and Criteria pattern.
+- Read `references/go-ddd-examples.md` for DDD in Go: folder structure by Bounded Context, Value Objects, Aggregate Root with unexported fields, Domain Events, Repository interface (port) vs implementation (adapter), Use Case, ACL, CQRS query side, Domain Service.
 
 ## Related Skills
 
