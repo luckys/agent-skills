@@ -21,6 +21,7 @@ npx skills add luckys/agent-skills --skill design-patterns-best-practices
 npx skills add luckys/agent-skills --skill ddd-best-practices
 npx skills add luckys/agent-skills --skill infrastructure-design
 npx skills add luckys/agent-skills --skill tdd-best-practices
+npx skills add luckys/agent-skills --skill fp-best-practices
 ```
 
 Run the command from your project root. Claude Code and other supported agents pick up `SKILL.md` files automatically on the next session.
@@ -91,6 +92,18 @@ Test-Driven Development guidance for driving implementation from tests.
 - James Carr's 15 anti-patterns + Ian Cooper's "TDD, Where Did It All Go Wrong"
 - Examples in TypeScript, Java, Python, C#, Ruby, and PHP
 
+### fp-best-practices
+
+Functional Programming guidance for writing clean, composable, and predictable code.
+
+- Pure functions, immutability, and referential transparency
+- Function composition with `pipe`/`compose`, currying, and partial application
+- Algebraic data types: Maybe/Option, Either/Result, sum types (tagged unions)
+- Making illegal states unrepresentable with branded types
+- Separating pure core from impure shell; dependency injection via function parameters
+- Higher-order functions: map, filter, reduce, flatMap, transducers, functors, monads
+- Examples in JavaScript, TypeScript, Haskell, Elm, Clojure, F#, and Elixir
+
 ## Usage
 
 Skills activate automatically when a task matches their description. No explicit invocation needed.
@@ -107,6 +120,9 @@ How should I structure my Aggregates?
 Write tests first for this feature using TDD
 What test double should I use here — mock or stub?
 Should the event bus use in-memory or DB-backed delivery?
+How do I replace this null check with a Maybe type?
+Should I use Either or throw an exception here?
+Refactor this loop to use map/filter/reduce
 ```
 
 ## Skill Structure
@@ -134,3 +150,8 @@ Skills are synthesized from:
 - *Practical Object-Oriented Design in Ruby* — Sandi Metz
 - *Implementation Patterns* — Kent Beck
 - CodelyTV repositories (TypeScript DDD skeleton, hexagonal architecture examples)
+- *Mostly Adequate Guide to Functional Programming* — Brian Lonsdorf (Professor Frisby)
+- *Domain Modeling Made Functional* — Scott Wlaschin
+- *Grokking Simplicity* — Eric Normand
+- *Structure and Interpretation of Computer Programs* — Abelson & Sussman
+- fp-ts, Effect-TS, and Ramda library documentation

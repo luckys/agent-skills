@@ -40,6 +40,7 @@ description: When to invoke this skill — specific task types and contexts.
 | `ddd-best-practices` | Domain modeling, Bounded Contexts, Aggregates, Domain Events, CQRS, Event Sourcing, Hexagonal Architecture |
 | `infrastructure-design` | Event bus, transactions, caching strategies, database views, read model infrastructure |
 | `tdd-best-practices` | Red-Green-Refactor cycle, test doubles (mock/stub/fake), outside-in vs inside-out TDD, BDD, test anti-patterns, test pyramid |
+| `fp-best-practices` | Pure functions, immutability, function composition/pipe, algebraic data types (Maybe, Either), managing side effects, higher-order functions (map/filter/reduce), currying, FP in JS/TS/Haskell/Elm/Clojure/F#/Elixir |
 
 ## Adding a New Skill
 
