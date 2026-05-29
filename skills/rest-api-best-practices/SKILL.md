@@ -120,6 +120,10 @@ Avoid exposing raw CRUD when the domain has real business operations. Prefer `PO
 - Read `references/documentation.md` for what to document per endpoint, working examples, OpenAPI 3.x spec structure, keeping docs executable with contract testing, and changelog practices.
 - Read `references/language-examples.md` for an index of language-specific implementation examples.
 - Read `references/typescript-examples.md` for REST API implementation in TypeScript (Express, NestJS).
+- Read `references/python-examples.md` for REST API implementation in Python (FastAPI, Django REST Framework).
+- Read `references/go-examples.md` for REST API implementation in Go (net/http, Chi).
+- Read `references/php-examples.md` for REST API implementation in PHP (Laravel, Symfony).
+- Read `references/java-examples.md` for REST API implementation in Java (Spring Boot 3.x).
 
 ## Related Skills
 
