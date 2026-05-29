@@ -22,6 +22,7 @@ npx skills add luckys/agent-skills --skill ddd-best-practices
 npx skills add luckys/agent-skills --skill infrastructure-design
 npx skills add luckys/agent-skills --skill tdd-best-practices
 npx skills add luckys/agent-skills --skill fp-best-practices
+npx skills add luckys/agent-skills --skill rest-api-best-practices
 ```
 
 Run the command from your project root. Claude Code and other supported agents pick up `SKILL.md` files automatically on the next session.
@@ -104,6 +105,19 @@ Functional Programming guidance for writing clean, composable, and predictable c
 - Higher-order functions: map, filter, reduce, flatMap, transducers, functors, monads
 - Examples in JavaScript, TypeScript, Haskell, Elm, Clojure, F#, and Elixir
 
+### rest-api-best-practices
+
+REST API design guidance for building clean, consistent, and consumer-friendly APIs.
+
+- URL naming conventions, resource nesting, and versioning strategy
+- HTTP method semantics (safe, idempotent, cacheable) and status code selection
+- Request and response design: filtering, sorting, cursor and offset pagination, content negotiation
+- Error response formats: RFC 7807 Problem Details and custom envelopes
+- Security: JWT, API keys, OAuth 2.0, rate limiting, CORS, and HTTPS enforcement
+- CRUD anti-pattern: why task-based APIs (`POST /orders/{id}/cancel`) are more expressive than raw CRUD
+- HATEOAS, REST architectural constraints, and API-as-a-product thinking
+- Examples in TypeScript (Express, NestJS)
+
 ## Usage
 
 Skills activate automatically when a task matches their description. No explicit invocation needed.
@@ -123,6 +137,9 @@ Should the event bus use in-memory or DB-backed delivery?
 How do I replace this null check with a Maybe type?
 Should I use Either or throw an exception here?
 Refactor this loop to use map/filter/reduce
+Design a REST API for this e-commerce domain
+What status code should I return when a business rule fails?
+Should I use PATCH or a task-based endpoint here?
 ```
 
 ## Skill Structure
@@ -155,3 +172,8 @@ Skills are synthesized from:
 - *Grokking Simplicity* — Eric Normand
 - *Structure and Interpretation of Computer Programs* — Abelson & Sussman
 - fp-ts, Effect-TS, and Ramda library documentation
+- *REST API Design Rulebook* — Mark Masse
+- *RESTful Web APIs* — Leonard Richardson & Mike Amundsen
+- RFC 7807 (Problem Details), RFC 9110 (HTTP Semantics)
+- Fran Iglesias — API REST series (franiglesias.github.io)
+- Derek Comartin — "CRUD APIs are Poor Design" (codeopinion.com)
