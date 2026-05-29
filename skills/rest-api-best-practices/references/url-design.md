@@ -104,6 +104,44 @@ Link: <https://api.example.com/v2/users>; rel="successor-version"
 
 Support at least one prior major version during the deprecation window.
 
+## Backward Compatibility
+
+### Add, don't remove
+
+When evolving an API, prefer adding new fields or endpoints over removing or changing existing ones. Clients that ignore unknown fields won't break; clients that depend on a removed field will.
+
+Safe changes (no version bump needed):
+- Adding a new optional field to a response
+- Adding a new optional query parameter
+- Adding a new endpoint
+- Adding a new HTTP method to an existing endpoint
+
+Breaking changes (require a version bump):
+- Removing a field
+- Renaming a field
+- Changing a field's type or format
+- Removing an endpoint
+- Changing a status code's semantics
+- Making a previously optional field required
+
+### Deprecation process
+
+When removal is unavoidable, announce it early and support both behaviors in parallel:
+
+1. Announce the deprecation with a timeline.
+2. Include deprecation warnings in responses so clients notice before removal.
+3. Support old and new versions simultaneously during the deprecation window.
+
+```
+# Deprecation header (RFC 8594)
+Deprecation: Sat, 01 Jun 2025 00:00:00 GMT
+Sunset: Sat, 01 Dec 2025 00:00:00 GMT
+Link: <https://api.example.com/v2/users>; rel="successor-version"
+
+# Custom warning header (visible in logs and monitoring)
+X-API-Warn: This endpoint is deprecated and will be removed on 2025-12-01. Migrate to /v2/users.
+```
+
 ## Task-Based URLs
 
 When a domain operation does not map cleanly to CRUD, use a task URL. The pattern is:

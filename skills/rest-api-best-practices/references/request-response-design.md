@@ -178,6 +178,43 @@ GET /orders/{id}?fields=id,status,total
 
 Reduces payload size. Especially valuable for mobile clients or aggregation layers that call many APIs. Not required for all APIs — add only when there is clear consumer demand.
 
+## Response Structure Depth
+
+Keep response objects relatively flat. Deep nesting leaks the internal data model, makes responses harder to parse, and couples clients to the internal structure of related entities.
+
+```json
+// Good — flat references
+{
+  "id": "ord_456",
+  "customerId": "usr_123",
+  "customerName": "Ana García",
+  "organizationId": "org_789",
+  "organizationName": "Tech Corp"
+}
+
+// Bad — deep nesting leaks internal model
+{
+  "id": "ord_456",
+  "customer": {
+    "id": "usr_123",
+    "name": "Ana García",
+    "organization": {
+      "id": "org_789",
+      "name": "Tech Corp",
+      "settings": {
+        "timezone": "UTC",
+        "billing": { "plan": "pro" }
+      }
+    }
+  }
+}
+```
+
+More than two levels of nesting often signals a resource modeling problem. Consider:
+- Returning IDs and letting clients fetch related resources on demand.
+- Flattening the most-used fields into the parent object.
+- Introducing a dedicated composite endpoint for the specific client need.
+
 ## Identifiers
 
 Use opaque string IDs (`usr_01J8X`, `ord_abc123`) rather than raw database integer IDs:

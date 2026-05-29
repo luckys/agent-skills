@@ -104,6 +104,9 @@ Avoid exposing raw CRUD when the domain has real business operations. Prefer `PO
 - Every endpoint maps directly to a database table with full CRUD.
 - No versioning strategy — breaking changes deployed silently.
 - API key or token passed as a query parameter.
+- Response objects nested more than two levels deep.
+- No request ID header — errors cannot be correlated in logs.
+- No documentation or documentation that doesn't match reality.
 
 ## References
 
@@ -113,6 +116,8 @@ Avoid exposing raw CRUD when the domain has real business operations. Prefer `PO
 - Read `references/error-handling.md` for error response formats (RFC 7807 and custom envelope), status code mapping, domain error translation, and validation errors.
 - Read `references/security.md` for authentication (JWT, API keys, OAuth 2.0), authorization, rate limiting, CORS, and HTTPS enforcement.
 - Read `references/api-design-philosophy.md` for REST architectural constraints, the CRUD anti-pattern, task-based API design, and HATEOAS.
+- Read `references/observability.md` for request IDs, structured logging, metrics, distributed tracing, health endpoints, and alerting.
+- Read `references/documentation.md` for what to document per endpoint, working examples, OpenAPI 3.x spec structure, keeping docs executable with contract testing, and changelog practices.
 - Read `references/language-examples.md` for an index of language-specific implementation examples.
 - Read `references/typescript-examples.md` for REST API implementation in TypeScript (Express, NestJS).
 

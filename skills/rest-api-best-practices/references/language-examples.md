@@ -20,6 +20,7 @@ Each language file covers the same set of implementation patterns:
 - Authentication middleware (JWT Bearer)
 - Domain error translation at the API boundary
 - Task-based endpoints
+- Request ID middleware (`X-Request-ID`)
 
 ## How to Use
 
