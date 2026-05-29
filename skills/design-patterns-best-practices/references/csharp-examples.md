@@ -1519,4 +1519,170 @@ Console.WriteLine(invoice.Tags.Count); // 2           — Tags list is independe
 Console.WriteLine(draft.Title);        // Draft Invoice
 ```
 
+## DDD Tactical Patterns
+
+### Entity
+
+**Intent:** An object with a unique identity that persists over time; equality is based on identity, not attributes.
+
+```csharp
+public class Order
+{
+    public Guid Id { get; }
+    public Guid CustomerId { get; }
+    public string Status { get; private set; } = "Pending";
+
+    public Order(Guid customerId)
+    {
+        Id = Guid.NewGuid();
+        CustomerId = customerId;
+    }
+
+    public void Confirm()
+    {
+        if (Status != "Pending")
+            throw new InvalidOperationException("Only pending orders can be confirmed.");
+        Status = "Confirmed";
+    }
+
+    public void Cancel()
+    {
+        if (Status == "Shipped")
+            throw new InvalidOperationException("Cannot cancel a shipped order.");
+        Status = "Cancelled";
+    }
+
+    public override bool Equals(object? obj) =>
+        obj is Order other && Id == other.Id;
+
+    public override int GetHashCode() => Id.GetHashCode();
+}
+```
+
+**Key point:** Two `Order` instances with the same `Id` are the same entity regardless of their current attribute values.
+
+---
+
+### Aggregate Root
+
+**Intent:** An entity that controls access to a cluster of objects, enforces invariants, and collects domain events internally.
+
+```csharp
+public record OrderItemAdded(Guid OrderId, Guid ProductId, int Quantity);
+
+public record OrderItem(Guid ProductId, int Quantity, decimal UnitPrice);
+
+public class Order
+{
+    private const int MaxItems = 50;
+    private readonly List<OrderItem> _items = new();
+    private readonly List<object> _events = new();
+
+    public Guid Id { get; } = Guid.NewGuid();
+    public IReadOnlyList<OrderItem> Items => _items.AsReadOnly();
+    public decimal Total => _items.Sum(i => i.Quantity * i.UnitPrice);
+
+    public void AddItem(Guid productId, int quantity, decimal unitPrice)
+    {
+        if (_items.Count >= MaxItems)
+            throw new InvalidOperationException("Order cannot exceed 50 items.");
+        if (quantity <= 0)
+            throw new ArgumentException("Quantity must be positive.");
+
+        _items.Add(new OrderItem(productId, quantity, unitPrice));
+        _events.Add(new OrderItemAdded(Id, productId, quantity));
+    }
+
+    public IReadOnlyList<object> CollectEvents()
+    {
+        var snapshot = _events.ToList();
+        _events.Clear();
+        return snapshot;
+    }
+}
+```
+
+**Key point:** External code never manipulates `_items` directly — all mutations go through the aggregate root, which enforces invariants and records events.
+
+---
+
+### Domain Event
+
+**Intent:** An immutable record of something significant that happened in the domain.
+
+```csharp
+public sealed record OrderPlaced(
+    Guid OrderId,
+    Guid CustomerId,
+    decimal TotalAmount,
+    Guid EventId,
+    DateTimeOffset OccurredAt)
+{
+    public static OrderPlaced Create(Guid orderId, Guid customerId, decimal totalAmount) =>
+        new(
+            OrderId: orderId,
+            CustomerId: customerId,
+            TotalAmount: totalAmount,
+            EventId: Guid.NewGuid(),
+            OccurredAt: DateTimeOffset.UtcNow
+        );
+}
+
+// Usage
+var evt = OrderPlaced.Create(orderId: Guid.NewGuid(), customerId: Guid.NewGuid(), totalAmount: 149.99m);
+// evt is immutable — record properties are init-only
+```
+
+**Key point:** Using a `sealed record` with a factory method ensures immutability and auto-assigns `EventId` and `OccurredAt` so callers cannot accidentally omit them.
+
+---
+
+### Specification
+
+**Intent:** An encapsulated, combinable business rule that can be tested against a candidate object.
+
+```csharp
+public record Customer(bool IsActive, decimal TotalSpent, int Age);
+
+public interface ISpecification<T>
+{
+    bool IsSatisfiedBy(T candidate);
+    ISpecification<T> And(ISpecification<T> other) => new AndSpec<T>(this, other);
+    ISpecification<T> Or(ISpecification<T> other) => new OrSpec<T>(this, other);
+    ISpecification<T> Not() => new NotSpec<T>(this);
+}
+
+public record AndSpec<T>(ISpecification<T> Left, ISpecification<T> Right) : ISpecification<T>
+{
+    public bool IsSatisfiedBy(T c) => Left.IsSatisfiedBy(c) && Right.IsSatisfiedBy(c);
+}
+
+public record OrSpec<T>(ISpecification<T> Left, ISpecification<T> Right) : ISpecification<T>
+{
+    public bool IsSatisfiedBy(T c) => Left.IsSatisfiedBy(c) || Right.IsSatisfiedBy(c);
+}
+
+public record NotSpec<T>(ISpecification<T> Inner) : ISpecification<T>
+{
+    public bool IsSatisfiedBy(T c) => !Inner.IsSatisfiedBy(c);
+}
+
+public class ActiveCustomerSpec : ISpecification<Customer>
+{
+    public bool IsSatisfiedBy(Customer c) => c.IsActive;
+}
+
+public class PremiumCustomerSpec : ISpecification<Customer>
+{
+    public bool IsSatisfiedBy(Customer c) => c.TotalSpent >= 1000m;
+}
+
+// Combine: active AND premium
+var eligible = new ActiveCustomerSpec().And(new PremiumCustomerSpec());
+var customer = new Customer(IsActive: true, TotalSpent: 1500m, Age: 30);
+Console.WriteLine(eligible.IsSatisfiedBy(customer)); // True
+```
+
+**Key point:** Business rules are named, testable objects that compose via `And`, `Or`, and `Not` without modifying either rule.
+
 **Key point:** `Clone()` performs a deep copy so the new instance shares no mutable state with the original, making it safe to customize the clone without affecting the template.

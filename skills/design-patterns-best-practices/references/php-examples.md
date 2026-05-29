@@ -1674,3 +1674,183 @@ echo count($q2Report->sections);   // 1
 ```
 
 **Key point:** `clone` combined with `__clone()` for deep-copying nested arrays keeps each stamped document fully independent from the prototype and from each other.
+
+---
+
+## DDD Tactical Patterns
+
+### Entity
+
+**Intent:** An object with a unique identity that persists and is compared by ID, not by attribute values.
+
+```php
+final class Order
+{
+    private readonly string $id;
+    private string $status;
+
+    public function __construct(
+        public readonly string $customerId,
+    ) {
+        $this->id     = bin2hex(random_bytes(16));
+        $this->status = 'pending';
+    }
+
+    public function id(): string     { return $this->id; }
+    public function status(): string { return $this->status; }
+
+    public function confirm(): void
+    {
+        if ($this->status === 'confirmed') {
+            throw new \DomainException('Order already confirmed');
+        }
+        $this->status = 'confirmed';
+    }
+
+    public function equals(self $other): bool
+    {
+        return $this->id === $other->id;
+    }
+}
+```
+
+**Key point:** Two `Order` objects with the same `customerId` but different `id` values are never equal — identity, not data, defines sameness.
+
+---
+
+### Aggregate Root
+
+**Intent:** An entity that controls access to a cluster of objects, enforces invariants, and collects domain events internally.
+
+```php
+final class OrderItemAdded
+{
+    public function __construct(
+        public readonly string $orderId,
+        public readonly string $sku,
+        public readonly int    $quantity,
+        public readonly \DateTimeImmutable $occurredAt,
+    ) {}
+}
+
+final class Order
+{
+    private const MAX_ITEMS = 10;
+
+    private array $items  = [];
+    private array $events = [];
+
+    public function __construct(private readonly string $id) {}
+
+    public function addItem(string $sku, int $quantity): void
+    {
+        if (count($this->items) >= self::MAX_ITEMS) {
+            throw new \DomainException('Order is full');
+        }
+        if ($quantity < 1) {
+            throw new \DomainException('Quantity must be positive');
+        }
+
+        $this->items[] = ['sku' => $sku, 'quantity' => $quantity];
+        $this->events[] = new OrderItemAdded($this->id, $sku, $quantity, new \DateTimeImmutable());
+    }
+
+    public function releaseEvents(): array { $e = $this->events; $this->events = []; return $e; }
+    public function itemCount(): int       { return count($this->items); }
+}
+```
+
+**Key point:** External code never touches `$items` directly — all mutations go through `addItem`, which enforces invariants and records what happened as domain events.
+
+---
+
+### Domain Event
+
+**Intent:** An immutable record of something that happened in the domain, carrying all relevant data at the moment it occurred.
+
+```php
+final readonly class OrderPlaced
+{
+    public \DateTimeImmutable $occurredAt;
+
+    public function __construct(
+        public string $orderId,
+        public string $customerId,
+        public int    $totalCents,
+    ) {
+        $this->occurredAt = new \DateTimeImmutable();
+    }
+}
+
+// Usage
+$event = new OrderPlaced(
+    orderId:     $order->id(),
+    customerId:  $order->customerId,
+    totalCents:  4999,
+);
+
+echo $event->orderId;
+echo $event->occurredAt->format(\DATE_ATOM);
+// $event->orderId = 'x';  // Fatal — readonly properties cannot be mutated
+```
+
+**Key point:** `readonly` on the class makes every property immutable after construction — domain events cannot be altered after they are created, making them safe to store, publish, and replay.
+
+---
+
+### Specification
+
+**Intent:** Encapsulate a business rule as a combinable predicate object that can be composed with AND, OR, and NOT.
+
+```php
+interface Specification
+{
+    public function isSatisfiedBy(object $candidate): bool;
+    public function and(Specification $other): Specification;
+    public function or(Specification $other): Specification;
+    public function not(): Specification;
+}
+
+abstract class AbstractSpecification implements Specification
+{
+    public function and(Specification $other): Specification
+    {
+        return new class($this, $other) extends AbstractSpecification {
+            public function __construct(private Specification $a, private Specification $b) {}
+            public function isSatisfiedBy(object $c): bool { return $this->a->isSatisfiedBy($c) && $this->b->isSatisfiedBy($c); }
+        };
+    }
+
+    public function or(Specification $other): Specification
+    {
+        return new class($this, $other) extends AbstractSpecification {
+            public function __construct(private Specification $a, private Specification $b) {}
+            public function isSatisfiedBy(object $c): bool { return $this->a->isSatisfiedBy($c) || $this->b->isSatisfiedBy($c); }
+        };
+    }
+
+    public function not(): Specification
+    {
+        return new class($this) extends AbstractSpecification {
+            public function __construct(private Specification $inner) {}
+            public function isSatisfiedBy(object $c): bool { return !$this->inner->isSatisfiedBy($c); }
+        };
+    }
+}
+
+final class ActiveCustomerSpecification extends AbstractSpecification
+{
+    public function isSatisfiedBy(object $customer): bool { return $customer->active; }
+}
+
+final class PremiumCustomerSpecification extends AbstractSpecification
+{
+    public function isSatisfiedBy(object $customer): bool { return $customer->tier === 'premium'; }
+}
+
+// Usage
+$spec = (new ActiveCustomerSpecification())->and(new PremiumCustomerSpecification());
+$eligible = array_filter($customers, fn($c) => $spec->isSatisfiedBy($c));
+```
+
+**Key point:** Business rules are named, testable objects that compose naturally — `and`/`or`/`not` read like domain language and add no branching to the host class.

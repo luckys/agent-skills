@@ -82,9 +82,8 @@ One Repository per Aggregate Root. Never expose a Repository for child entities 
 - Read `references/strategic-design.md` for Subdomains (Core/Supporting/Generic), Bounded Contexts, and Ubiquitous Language.
 - Read `references/context-mapping.md` for Context Map patterns: Partnership, Shared Kernel, Customer-Supplier, Conformist, ACL, Open Host Service, Published Language.
 - Read `references/cqrs-and-events.md` for CQRS, Event Sourcing, Event Storming, and process managers.
-- Read `references/ddd-in-php.md` for PHP-specific DDD implementation patterns and examples.
 - Read `references/hexagonal-architecture.md` for Ports & Adapters: primary/driven ports, adapters, dependency direction, test strategy, Walking Skeleton implementation, and comparison with Clean/Onion Architecture.
-- Read `references/ddd-principles.md` for practical DDD application: Knowledge Crunching, Impact Mapping, Model Exploration Whirlpool, Domain Vision Statement, Application Service Layer, team topology, DDD adoption anti-patterns, and conditions for success.
+- Read `references/ddd-in-practice.md` for practical DDD application and PHP implementation examples. Part I: Knowledge Crunching, Impact Mapping, Model Exploration Whirlpool, Domain Vision Statement, Application Service Layer, team topology, DDD adoption anti-patterns, conditions for success. Part II: PHP code examples for Value Objects, Entities, Aggregate Root, Domain Events, Repository, Domain Service, Application Service, Specification.
 
 ## Related Skills
 

@@ -1467,3 +1467,146 @@ puts proposal  # Proposal [Georgia, 25mm] — Introduction, Summary, Pricing
 ```
 
 **Key point:** `deep_clone` duplicates only the mutable nested structures — shared immutable values (font, margins) are safely reused, keeping copies independent without a full deep copy.
+
+---
+
+## DDD Tactical Patterns
+
+### Entity
+
+**Intent:** An object with a unique identity that persists and is compared by ID, not by attribute values.
+
+```ruby
+require "securerandom"
+
+class Order
+  attr_reader :id, :customer_id, :status
+
+  def initialize(customer_id:)
+    @id          = SecureRandom.uuid
+    @customer_id = customer_id
+    @status      = :pending
+  end
+
+  def confirm
+    raise "Order already confirmed" if @status == :confirmed
+    @status = :confirmed
+  end
+
+  def ==(other) = other.is_a?(Order) && id == other.id
+  alias eql? ==
+  def hash = id.hash
+end
+```
+
+**Key point:** Two `Order` objects with the same `customer_id` but different `id` values are never equal — identity, not data, defines sameness.
+
+---
+
+### Aggregate Root
+
+**Intent:** An entity that controls access to a cluster of objects, enforces invariants, and collects domain events internally.
+
+```ruby
+OrderItemAdded = Data.define(:order_id, :sku, :quantity, :occurred_at)
+
+class Order
+  MAX_ITEMS = 10
+
+  attr_reader :id, :events
+
+  def initialize(id)
+    @id    = id
+    @items = []
+    @events = []
+  end
+
+  def add_item(sku:, quantity:)
+    raise "Order is full" if @items.size >= MAX_ITEMS
+    raise "Quantity must be positive" unless quantity.positive?
+
+    @items << { sku: sku, quantity: quantity }
+    @events << OrderItemAdded.new(
+      order_id:    @id,
+      sku:         sku,
+      quantity:    quantity,
+      occurred_at: Time.now
+    )
+  end
+
+  def item_count = @items.size
+end
+```
+
+**Key point:** External code never touches `@items` directly — all mutations go through `add_item`, which enforces invariants and records what happened as domain events.
+
+---
+
+### Domain Event
+
+**Intent:** An immutable record of something that happened in the domain, carrying all relevant data at the moment it occurred.
+
+```ruby
+OrderPlaced = Data.define(:order_id, :customer_id, :total_cents, :occurred_at) do
+  def self.for(order, total_cents:)
+    new(
+      order_id:    order.id,
+      customer_id: order.customer_id,
+      total_cents: total_cents,
+      occurred_at: Time.now.utc
+    )
+  end
+end
+
+event = OrderPlaced.for(order, total_cents: 4999)
+puts event.order_id
+puts event.occurred_at
+# event.order_id = "x"  # => FrozenError — immutable by construction
+```
+
+**Key point:** `Data.define` produces a frozen, equality-by-value struct — domain events cannot be mutated after creation, making them safe to store, publish, and replay.
+
+---
+
+### Specification
+
+**Intent:** Encapsulate a business rule as a combinable predicate object that can be composed with AND, OR, and NOT.
+
+```ruby
+module Specification
+  def satisfied_by?(candidate) = raise NotImplementedError
+  def &(other) = AndSpecification.new(self, other)
+  def |(other) = OrSpecification.new(self, other)
+  def ~@       = NotSpecification.new(self)
+end
+
+AndSpecification = Struct.new(:left, :right) do
+  include Specification
+  def satisfied_by?(candidate) = left.satisfied_by?(candidate) && right.satisfied_by?(candidate)
+end
+
+OrSpecification = Struct.new(:left, :right) do
+  include Specification
+  def satisfied_by?(candidate) = left.satisfied_by?(candidate) || right.satisfied_by?(candidate)
+end
+
+NotSpecification = Struct.new(:inner) do
+  include Specification
+  def satisfied_by?(candidate) = !inner.satisfied_by?(candidate)
+end
+
+class ActiveCustomerSpecification
+  include Specification
+  def satisfied_by?(customer) = customer[:active]
+end
+
+class PremiumCustomerSpecification
+  include Specification
+  def satisfied_by?(customer) = customer[:tier] == :premium
+end
+
+active_premium = ActiveCustomerSpecification.new & PremiumCustomerSpecification.new
+customers.select { |c| active_premium.satisfied_by?(c) }
+```
+
+**Key point:** Business rules are named, testable objects that compose naturally — `active & premium` reads like the domain language and adds no branching to the host class.

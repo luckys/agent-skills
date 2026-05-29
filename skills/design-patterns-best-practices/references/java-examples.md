@@ -1467,4 +1467,153 @@ report.setTitle("Q1 Sales Report");
 report.addSection("Summary");
 ```
 
+## DDD Tactical Patterns
+
+### Entity
+
+**Intent:** An object with a unique identity that persists and changes over time.
+
+```java
+public class Order {
+    private final String id;
+    private String status; // "draft" | "placed" | "shipped"
+    private final String customerId;
+
+    public Order(String id, String customerId) {
+        this.id = id;
+        this.status = "draft";
+        this.customerId = customerId;
+    }
+
+    public void place() {
+        if (!"draft".equals(status)) throw new IllegalStateException("Order already placed");
+        this.status = "placed";
+    }
+
+    public String getStatus() { return status; }
+
+    @Override
+    public boolean equals(Object o) {  // identity-based equality
+        if (this == o) return true;
+        if (!(o instanceof Order other)) return false;
+        return id.equals(other.id);
+    }
+
+    @Override public int hashCode() { return id.hashCode(); }
+}
+```
+
+**Key point:** Two entities are equal when their IDs match, regardless of attribute differences.
+
+---
+
+### Aggregate Root
+
+**Intent:** An entity that guards a cluster of objects, enforces invariants, and records domain events.
+
+```java
+public class OrderAggregate {
+    private final String id;
+    private final int maxItems;
+    private final List<OrderItem> items = new ArrayList<>();
+    private final List<Object> events = new ArrayList<>();
+
+    public OrderAggregate(String id, int maxItems) {
+        this.id = id;
+        this.maxItems = maxItems;
+    }
+
+    public void addItem(String productId, int qty) {
+        if (items.size() >= maxItems)
+            throw new IllegalStateException("Order exceeds maximum item limit");
+        if (qty <= 0)
+            throw new IllegalArgumentException("Quantity must be positive");
+
+        items.add(new OrderItem(productId, qty));
+        events.add(new OrderItemAdded(id, productId, qty));
+    }
+
+    public List<Object> pullEvents() {
+        var pending = List.copyOf(events);
+        events.clear();
+        return pending;
+    }
+
+    record OrderItem(String productId, int qty) {}
+}
+```
+
+**Key point:** All mutations go through the aggregate root so invariants are always enforced before state changes.
+
+---
+
+### Domain Event
+
+**Intent:** An immutable record of something that happened in the domain, carrying all relevant data.
+
+```java
+public record OrderItemAdded(
+    String orderId,
+    String productId,
+    int quantity,
+    Instant occurredAt
+) {
+    public OrderItemAdded(String orderId, String productId, int quantity) {
+        this(orderId, productId, quantity, Instant.now());
+    }
+}
+
+public record OrderPlaced(
+    String orderId,
+    String customerId,
+    Instant occurredAt
+) {
+    public OrderPlaced(String orderId, String customerId) {
+        this(orderId, customerId, Instant.now());
+    }
+}
+```
+
+**Key point:** Java `record` types are shallowly immutable by default, making them a natural fit for domain events.
+
+---
+
+### Specification
+
+**Intent:** An encapsulated, combinable business rule that answers whether an object satisfies a condition.
+
+```java
+public interface Specification<T> {
+    boolean isSatisfiedBy(T candidate);
+
+    default Specification<T> and(Specification<T> other) {
+        return candidate -> isSatisfiedBy(candidate) && other.isSatisfiedBy(candidate);
+    }
+    default Specification<T> or(Specification<T> other) {
+        return candidate -> isSatisfiedBy(candidate) || other.isSatisfiedBy(candidate);
+    }
+    default Specification<T> not() {
+        return candidate -> !isSatisfiedBy(candidate);
+    }
+}
+
+record Customer(boolean active, double totalSpend) {}
+
+class ActiveCustomerSpec implements Specification<Customer> {
+    public boolean isSatisfiedBy(Customer c) { return c.active(); }
+}
+
+class PremiumCustomerSpec implements Specification<Customer> {
+    public boolean isSatisfiedBy(Customer c) { return c.totalSpend() >= 10_000; }
+}
+
+// Compose: active AND premium
+Specification<Customer> eligibleForPromo =
+    new ActiveCustomerSpec().and(new PremiumCustomerSpec());
+
+boolean result = eligibleForPromo.isSatisfiedBy(new Customer(true, 15_000)); // true
+```
+
+**Key point:** Composing specifications with `and`/`or`/`not` expresses complex business rules without scattering conditionals.
+
 **Key point:** `clone()` produces a fully configured copy with independent state — callers avoid repeating header/footer setup for every new document.

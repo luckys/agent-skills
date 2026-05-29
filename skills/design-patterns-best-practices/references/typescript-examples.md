@@ -1448,4 +1448,147 @@ console.log(reportTemplate.sections.length) // 3
 console.log(q1Report.sections.length)        // 4
 ```
 
+## DDD Tactical Patterns
+
+### Entity
+
+**Intent:** An object with a unique identity that persists and changes over time.
+
+```typescript
+class Order {
+  constructor(
+    readonly id: string,
+    private _status: 'draft' | 'placed' | 'shipped',
+    private _customerId: string,
+  ) {}
+
+  place(): void {
+    if (this._status !== 'draft') throw new Error('Order already placed')
+    this._status = 'placed'
+  }
+
+  get status() { return this._status }
+
+  equals(other: Order): boolean {
+    return this.id === other.id  // identity-based equality
+  }
+}
+```
+
+**Key point:** Two entities are equal when their IDs match, regardless of attribute differences.
+
+---
+
+### Aggregate Root
+
+**Intent:** An entity that guards a cluster of objects, enforces invariants, and records domain events.
+
+```typescript
+class OrderAggregate {
+  private items: { productId: string; qty: number }[] = []
+  private events: object[] = []
+
+  constructor(readonly id: string, private readonly maxItems = 10) {}
+
+  addItem(productId: string, qty: number): void {
+    if (this.items.length >= this.maxItems)
+      throw new Error('Order exceeds maximum item limit')
+    if (qty <= 0) throw new Error('Quantity must be positive')
+
+    this.items.push({ productId, qty })
+    this.events.push(new OrderItemAdded(this.id, productId, qty))
+  }
+
+  pullEvents(): object[] {
+    const pending = [...this.events]
+    this.events = []
+    return pending
+  }
+}
+```
+
+**Key point:** All mutations go through the aggregate root so invariants are always enforced before state changes.
+
+---
+
+### Domain Event
+
+**Intent:** An immutable record of something that happened in the domain, carrying all relevant data.
+
+```typescript
+class OrderItemAdded {
+  readonly occurredAt: Date
+
+  constructor(
+    readonly orderId: string,
+    readonly productId: string,
+    readonly quantity: number,
+  ) {
+    this.occurredAt = new Date()
+    Object.freeze(this)
+  }
+}
+
+class OrderPlaced {
+  readonly occurredAt: Date
+
+  constructor(readonly orderId: string, readonly customerId: string) {
+    this.occurredAt = new Date()
+    Object.freeze(this)
+  }
+}
+```
+
+**Key point:** `Object.freeze` guarantees immutability so the event record cannot be altered after creation.
+
+---
+
+### Specification
+
+**Intent:** An encapsulated, combinable business rule that answers whether an object satisfies a condition.
+
+```typescript
+interface Specification<T> {
+  isSatisfiedBy(candidate: T): boolean
+  and(other: Specification<T>): Specification<T>
+  or(other: Specification<T>): Specification<T>
+  not(): Specification<T>
+}
+
+abstract class BaseSpec<T> implements Specification<T> {
+  abstract isSatisfiedBy(candidate: T): boolean
+  and(other: Specification<T>) { return new AndSpec(this, other) }
+  or(other: Specification<T>)  { return new OrSpec(this, other) }
+  not()                        { return new NotSpec(this) }
+}
+
+class AndSpec<T> extends BaseSpec<T> {
+  constructor(private a: Specification<T>, private b: Specification<T>) { super() }
+  isSatisfiedBy(c: T) { return this.a.isSatisfiedBy(c) && this.b.isSatisfiedBy(c) }
+}
+class OrSpec<T>  extends BaseSpec<T> {
+  constructor(private a: Specification<T>, private b: Specification<T>) { super() }
+  isSatisfiedBy(c: T) { return this.a.isSatisfiedBy(c) || this.b.isSatisfiedBy(c) }
+}
+class NotSpec<T> extends BaseSpec<T> {
+  constructor(private inner: Specification<T>) { super() }
+  isSatisfiedBy(c: T) { return !this.inner.isSatisfiedBy(c) }
+}
+
+type Customer = { active: boolean; totalSpend: number }
+
+class ActiveCustomerSpec   extends BaseSpec<Customer> {
+  isSatisfiedBy(c: Customer) { return c.active }
+}
+class PremiumCustomerSpec  extends BaseSpec<Customer> {
+  isSatisfiedBy(c: Customer) { return c.totalSpend >= 10_000 }
+}
+
+// Compose: active AND premium
+const eligibleForPromo = new ActiveCustomerSpec().and(new PremiumCustomerSpec())
+console.log(eligibleForPromo.isSatisfiedBy({ active: true, totalSpend: 15_000 })) // true
+```
+
+**Key point:** Composing specifications with `and`/`or`/`not` expresses complex business rules without scattering conditionals.
+
 **Key point:** Each clone is an independent deep copy — mutating one report does not affect the template or sibling reports cloned from it.

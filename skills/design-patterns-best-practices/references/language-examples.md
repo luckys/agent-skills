@@ -46,6 +46,12 @@ Each language file contains examples for the same 23 patterns:
 **Other**
 - Result Pattern — typed success/failure return instead of exceptions
 
+**DDD Tactical Patterns**
+- Entity — object with unique identity; equality by ID, not attributes
+- Aggregate Root — entity controlling a cluster, enforcing invariants, collecting domain events
+- Domain Event — immutable record of something that happened (past tense, no behavior)
+- Specification — composable predicate encapsulating a business rule (AND/OR/NOT)
+
 **Enterprise Application Patterns (PoEAA)**
 - Transaction Script — procedural logic per use case with direct DB access
 - Service Layer — application boundary coordinating domain objects and repositories

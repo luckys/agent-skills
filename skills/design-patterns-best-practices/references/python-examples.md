@@ -1677,4 +1677,187 @@ assert report_template.font_size == 11
 assert report_template.tags == ["confidential"]
 ```
 
+## DDD Tactical Patterns
+
+### Entity
+
+**Intent:** An object with a unique identity that persists over time; equality is based on identity, not attributes.
+
+```python
+from dataclasses import dataclass, field
+from uuid import UUID, uuid4
+
+@dataclass
+class Order:
+    id: UUID = field(default_factory=uuid4)
+    customer_id: UUID = None
+    status: str = "pending"
+
+    def confirm(self) -> None:
+        if self.status != "pending":
+            raise ValueError("Only pending orders can be confirmed")
+        self.status = "confirmed"
+
+    def cancel(self) -> None:
+        if self.status == "shipped":
+            raise ValueError("Cannot cancel a shipped order")
+        self.status = "cancelled"
+
+    def __eq__(self, other: object) -> bool:
+        if not isinstance(other, Order):
+            return NotImplemented
+        return self.id == other.id
+
+    def __hash__(self) -> int:
+        return hash(self.id)
+```
+
+**Key point:** Two `Order` instances with the same ID are the same entity regardless of their current attribute values.
+
+---
+
+### Aggregate Root
+
+**Intent:** An entity that controls access to a cluster of objects, enforces invariants, and collects domain events internally.
+
+```python
+from dataclasses import dataclass, field
+from uuid import UUID, uuid4
+from typing import List
+
+@dataclass
+class OrderItemAdded:
+    order_id: UUID
+    product_id: UUID
+    quantity: int
+
+@dataclass
+class OrderItem:
+    product_id: UUID
+    quantity: int
+    unit_price: float
+
+@dataclass
+class Order:
+    id: UUID = field(default_factory=uuid4)
+    items: List[OrderItem] = field(default_factory=list)
+    _events: List[object] = field(default_factory=list, repr=False)
+    MAX_ITEMS = 50
+
+    def add_item(self, product_id: UUID, quantity: int, unit_price: float) -> None:
+        if len(self.items) >= self.MAX_ITEMS:
+            raise ValueError("Order cannot exceed 50 items")
+        if quantity <= 0:
+            raise ValueError("Quantity must be positive")
+        self.items.append(OrderItem(product_id, quantity, unit_price))
+        self._events.append(OrderItemAdded(self.id, product_id, quantity))
+
+    def collect_events(self) -> List[object]:
+        events, self._events = self._events, []
+        return events
+
+    @property
+    def total(self) -> float:
+        return sum(i.quantity * i.unit_price for i in self.items)
+```
+
+**Key point:** External code never manipulates `items` directly — all mutations go through the aggregate root, which enforces invariants and records events.
+
+---
+
+### Domain Event
+
+**Intent:** An immutable record of something significant that happened in the domain.
+
+```python
+from dataclasses import dataclass, field
+from datetime import datetime, timezone
+from uuid import UUID, uuid4
+
+@dataclass(frozen=True)
+class OrderPlaced:
+    order_id: UUID
+    customer_id: UUID
+    total_amount: float
+    event_id: UUID = field(default_factory=uuid4)
+    occurred_at: datetime = field(
+        default_factory=lambda: datetime.now(timezone.utc)
+    )
+
+# Usage
+event = OrderPlaced(
+    order_id=uuid4(),
+    customer_id=uuid4(),
+    total_amount=149.99,
+)
+# event.total_amount = 0  # raises FrozenInstanceError — immutable by design
+```
+
+**Key point:** `frozen=True` makes the event truly immutable; the `event_id` and `occurred_at` are auto-assigned so callers cannot accidentally omit them.
+
+---
+
+### Specification
+
+**Intent:** An encapsulated, combinable business rule that can be tested against a candidate object.
+
+```python
+from abc import ABC, abstractmethod
+from dataclasses import dataclass
+
+@dataclass
+class Customer:
+    is_active: bool
+    total_spent: float
+    age: int
+
+class Specification(ABC):
+    @abstractmethod
+    def is_satisfied_by(self, candidate: Customer) -> bool: ...
+
+    def __and__(self, other: "Specification") -> "AndSpec":
+        return AndSpec(self, other)
+
+    def __or__(self, other: "Specification") -> "OrSpec":
+        return OrSpec(self, other)
+
+    def __invert__(self) -> "NotSpec":
+        return NotSpec(self)
+
+@dataclass
+class AndSpec(Specification):
+    left: Specification
+    right: Specification
+    def is_satisfied_by(self, c: Customer) -> bool:
+        return self.left.is_satisfied_by(c) and self.right.is_satisfied_by(c)
+
+@dataclass
+class OrSpec(Specification):
+    left: Specification
+    right: Specification
+    def is_satisfied_by(self, c: Customer) -> bool:
+        return self.left.is_satisfied_by(c) or self.right.is_satisfied_by(c)
+
+@dataclass
+class NotSpec(Specification):
+    spec: Specification
+    def is_satisfied_by(self, c: Customer) -> bool:
+        return not self.spec.is_satisfied_by(c)
+
+class ActiveCustomerSpec(Specification):
+    def is_satisfied_by(self, c: Customer) -> bool:
+        return c.is_active
+
+class PremiumCustomerSpec(Specification):
+    def is_satisfied_by(self, c: Customer) -> bool:
+        return c.total_spent >= 1000.0
+
+# Combine: active AND premium
+eligible = ActiveCustomerSpec() & PremiumCustomerSpec()
+customer = Customer(is_active=True, total_spent=1500.0, age=30)
+assert eligible.is_satisfied_by(customer)  # True
+```
+
+**Key point:** Business rules are named, testable objects that compose via `&`, `|`, and `~` without modifying either rule.
+
 **Key point:** `copy.deepcopy` inside `clone()` ensures nested structures (dicts, lists) are fully independent copies, so mutating a clone never corrupts the template or another clone.
