@@ -128,6 +128,7 @@ Use it especially when the task benefits from:
 
 - Use `refactoring-best-practices` for risky or legacy code changes.
 - Use `design-patterns-best-practices` when the main question is pattern selection.
+- Use `rest-api-best-practices` when designing the HTTP API surface that exposes these objects.
 
 ## Source Influences
 

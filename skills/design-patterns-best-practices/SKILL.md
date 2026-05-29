@@ -126,6 +126,7 @@ Use when you want to decouple business logic from data access and treat a collec
 
 - Use `oop-best-practices` for everyday code quality choices.
 - Use `refactoring-best-practices` when applying a pattern inside risky existing code.
+- Use `rest-api-best-practices` when applying patterns at the HTTP API boundary (Adapter, DTO, Result, Repository).
 
 ## Source Influences
 

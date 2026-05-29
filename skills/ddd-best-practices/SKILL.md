@@ -98,6 +98,7 @@ One Repository per Aggregate Root. Never expose a Repository for child entities 
 - Use `oop-best-practices` for everyday object design within a Bounded Context.
 - Use `design-patterns-best-practices` for GoF and enterprise patterns inside the domain.
 - Use `refactoring-best-practices` when evolving an existing domain model safely.
+- Use `rest-api-best-practices` when exposing the domain through an HTTP API and translating domain errors to status codes.
 
 ## Source Influences
 
