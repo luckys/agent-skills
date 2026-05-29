@@ -9,6 +9,7 @@ Use this file as an index to language-specific REST API example files.
 - `references/go-examples.md`         — Go with net/http and Chi
 - `references/php-examples.md`        — PHP with Laravel and Symfony
 - `references/java-examples.md`       — Java with Spring Boot 3.x
+- `references/rust-examples.md`       — Rust with axum
 
 ## Shared Concept Set
 
@@ -48,3 +49,4 @@ Each language file covers the same set of implementation patterns:
 | Go         | net/http, Chi        | go-playground/validator  | golang-jwt/jwt              |
 | PHP        | Laravel, Symfony     | Form Request, Assert     | Sanctum, LexikJWTBundle     |
 | Java       | Spring Boot 3.x      | Bean Validation (Jakarta)| Spring Security + OAuth2    |
+| Rust       | axum                 | validator crate          | jsonwebtoken                |

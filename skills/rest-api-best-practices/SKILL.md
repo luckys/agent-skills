@@ -118,12 +118,15 @@ Avoid exposing raw CRUD when the domain has real business operations. Prefer `PO
 - Read `references/api-design-philosophy.md` for REST architectural constraints, the CRUD anti-pattern, task-based API design, and HATEOAS.
 - Read `references/observability.md` for request IDs, structured logging, metrics, distributed tracing, health endpoints, and alerting.
 - Read `references/documentation.md` for what to document per endpoint, working examples, OpenAPI 3.x spec structure, keeping docs executable with contract testing, and changelog practices.
+- Read `references/caching.md` for Cache-Control directives, ETag/Last-Modified validation, conditional writes (optimistic concurrency), cache layers, and invalidation strategies.
+- Read `references/testing-apis.md` for the API test pyramid, contract testing (OpenAPI, Pact), what to test beyond the happy path, and test isolation.
 - Read `references/language-examples.md` for an index of language-specific implementation examples.
 - Read `references/typescript-examples.md` for REST API implementation in TypeScript (Express, NestJS).
 - Read `references/python-examples.md` for REST API implementation in Python (FastAPI, Django REST Framework).
 - Read `references/go-examples.md` for REST API implementation in Go (net/http, Chi).
 - Read `references/php-examples.md` for REST API implementation in PHP (Laravel, Symfony).
 - Read `references/java-examples.md` for REST API implementation in Java (Spring Boot 3.x).
+- Read `references/rust-examples.md` for REST API implementation in Rust (axum).
 
 ## Related Skills
 
