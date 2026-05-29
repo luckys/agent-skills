@@ -36,7 +36,9 @@ description: When to invoke this skill — specific task types and contexts.
 |---|---|
 | `oop-best-practices` | Naming, object boundaries, value objects, cohesion, message-based design |
 | `refactoring-best-practices` | Safe incremental changes to existing/legacy code without breaking behavior |
-| `design-patterns-best-practices` | Pattern selection (Strategy, State, Factory, Adapter, Decorator, Composite) |
+| `design-patterns-best-practices` | Pattern selection (Strategy, State, Factory, Adapter, Decorator, Composite, GoF, PoEAA, Criteria) |
+| `ddd-best-practices` | Domain modeling, Bounded Contexts, Aggregates, Domain Events, CQRS, Event Sourcing, Hexagonal Architecture |
+| `infrastructure-design` | Event bus, transactions, caching strategies, database views, read model infrastructure |
 
 ## Adding a New Skill
 

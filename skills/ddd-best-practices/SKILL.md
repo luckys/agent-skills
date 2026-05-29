@@ -84,6 +84,9 @@ One Repository per Aggregate Root. Never expose a Repository for child entities 
 - Read `references/cqrs-and-events.md` for CQRS, Event Sourcing, Event Storming, and process managers.
 - Read `references/hexagonal-architecture.md` for Ports & Adapters: primary/driven ports, adapters, dependency direction, test strategy, Walking Skeleton implementation, and comparison with Clean/Onion Architecture.
 - Read `references/ddd-in-practice.md` for practical DDD application and PHP implementation examples. Part I: Knowledge Crunching, Impact Mapping, Model Exploration Whirlpool, Domain Vision Statement, Application Service Layer, team topology, DDD adoption anti-patterns, conditions for success. Part II: PHP code examples for Value Objects, Entities, Aggregate Root, Domain Events, Repository, Domain Service, Application Service, Specification.
+- Read `references/domain-errors.md` for typed domain error patterns: one error class per failure, error layer ownership, Result type for domain operations, common DDD problems with domain events and errors (ordering, duplication, stuck events).
+- Read `references/read-models.md` for read model patterns: aggregate.toPrimitives() vs dedicated read models, CQRS read side, use case structure for queries, projection handlers (DomainEventSubscriber), idempotency, synchronous vs asynchronous projections.
+- Read `references/typescript-ddd-examples.md` for TypeScript DDD skeleton: folder structure by Bounded Context, ValueObject/Entity/AggregateRoot base classes, DomainEvent base, static factory vs reconstitution pattern, use case structure, and event bus interface.
 
 ## Related Skills
 
@@ -99,7 +102,6 @@ This skill is synthesized from:
 - *Implementing Domain-Driven Design* by Vaughn Vernon
 - *Domain-Driven Design Distilled* by Vaughn Vernon
 - *Learning Domain-Driven Design* by Vladik Khononov
-- *Patterns, Principles, and Practices of Domain-Driven Design* by Scott Millett & Nick Tune
 - *Patterns, Principles, and Practices of Domain-Driven Design* by Scott Millett & Nick Tune
 - *Hexagonal Architecture Explained* by Alistair Cockburn & Juan Manuel Garrido de Paz
 - *DDD in PHP* (community resource)

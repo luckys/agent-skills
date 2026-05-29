@@ -148,3 +148,101 @@ Patterns for separating reads from writes, communicating through events, and mod
 **Related patterns:** Domain Events and Integration Events (what the outbox publishes), Saga / Process Manager (outbox is the standard delivery mechanism for saga-issued commands), Event Sourcing (event store doubles as the outbox in event-sourced systems).
 
 **Practical heuristic:** Any time you write to a database and need to send a message to another service in the same operation, use the outbox pattern. Avoid the temptation to publish directly in the service layer — a process crash between commit and publish will silently lose the message.
+
+---
+
+## Raising Domain Events from Aggregates
+
+**Intent:** Let the aggregate itself record domain events so the use case never needs to know which events to create.
+
+**How it works:** The `AggregateRoot` base class maintains a private `domainEvents` list. Aggregates call `this.record(event)` inside named constructors or mutating methods — never inside the regular constructor. After persisting the aggregate, the use case calls `aggregate.pullDomainEvents()` to drain the list and hands the events to the `EventBus`. The pull clears the list atomically, making repeated calls safe.
+
+**Example:**
+```typescript
+// AggregateRoot base class
+export abstract class AggregateRoot {
+  private domainEvents: DomainEvent[] = [];
+
+  pullDomainEvents(): DomainEvent[] {
+    const events = this.domainEvents;
+    this.domainEvents = [];
+    return events;
+  }
+
+  protected record(event: DomainEvent): void {
+    this.domainEvents.push(event);
+  }
+}
+
+// Aggregate named constructor raises the event
+export class User extends AggregateRoot {
+  static create(id: string, name: string, email: string, profilePicture: string): User {
+    const user = new User(new UserId(id), new UserName(name), new UserEmail(email), ...);
+    user.record(new UserRegisteredDomainEvent(id, name, email, profilePicture));
+    return user;
+  }
+
+  updateEmail(email: string): void {
+    this.email = new UserEmail(email);
+    this.record(new UserEmailUpdatedDomainEvent(this.id.value, email));
+  }
+}
+
+// Use case publishes after saving
+export class UserRegistrar {
+  constructor(
+    private readonly repository: UserRepository,
+    private readonly eventBus: EventBus,
+  ) {}
+
+  async registrar(id: string, name: string, email: string, profilePicture: string): Promise<void> {
+    const user = User.create(id, name, email, profilePicture);
+    await this.repository.save(user);
+    await this.eventBus.publish(user.pullDomainEvents());
+  }
+}
+```
+
+**Practical heuristic:** Record events inside named constructors and mutating methods — never in the plain constructor. The use case only persists and publishes; it never constructs events manually.
+
+---
+
+## EventBus Interface
+
+**Intent:** Decouple the domain from event transport infrastructure by hiding the publishing mechanism behind a port.
+
+**How it works:** The `EventBus` interface lives in the domain layer alongside `DomainEvent`. Infrastructure provides concrete implementations (`InMemoryEventBus`, RabbitMQ adapter, etc.). The use case receives the bus via constructor injection, so tests can swap in a mock without touching real infrastructure.
+
+**Example:**
+```typescript
+// Domain port
+export interface EventBus {
+  publish(events: DomainEvent[]): Promise<void>;
+}
+
+// Concrete event (extends DomainEvent marker class)
+export class UserRegisteredDomainEvent extends DomainEvent {
+  constructor(
+    public readonly id: string,
+    public readonly name: string,
+    public readonly email: string,
+    public readonly profilePicture: string,
+  ) {
+    super();
+  }
+}
+```
+
+**Practical heuristic:** Keep `EventBus` and `DomainEvent` in `shared/domain/event/` — they are the only shared kernel between bounded contexts inside the same process.
+
+---
+
+## Where to Publish Domain Events: Use Case vs. Aggregate
+
+**Intent:** Decide which layer is responsible for handing events to the EventBus.
+
+**How it works:** The aggregate records events internally (`this.record(event)`). The use case is the only actor with access to the EventBus — it saves the aggregate and then calls `eventBus.publish(aggregate.pullDomainEvents())`. Publishing from inside the aggregate requires injecting the EventBus into the domain, which crosses the dependency rule and makes testing harder. Publishing from the use case keeps domain and infrastructure concerns cleanly separated.
+
+**When NOT to:** Do not inject EventBus into the aggregate. Do not publish from a repository save hook — a failed publish after a successful save creates a split-brain state that is hard to detect.
+
+**Practical heuristic:** The sequence is always: save aggregate → pull events → publish. If the save throws, no events are published. Use the Outbox Pattern when you cannot afford to lose events on process crash.

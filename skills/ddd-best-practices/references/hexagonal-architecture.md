@@ -255,3 +255,201 @@ tests/
 **Key rule:** The configurator must be the only place that references concrete adapter classes. Every other piece of code should reference only port interfaces.
 
 **Common mistake:** Letting the app look up its own driven actors (service locator antipattern without isolation). If the app calls a service locator that returns concrete types, the app now has a hidden dependency on concrete infrastructure, defeating the purpose of the driven port.
+
+---
+
+## Hexagonal Architecture in the Frontend
+
+Source: https://github.com/CodelyTV/frontend-hexagonal_architecture-course
+
+The same Ports & Adapters principles that govern a backend service apply identically to a frontend application. The UI framework (React, Vue, Angular) is a driving adapter. The HTTP API, localStorage, and browser APIs are driven adapters. The application use cases and domain model live inside the hexagon, with zero framework imports.
+
+---
+
+### The Frontend Hexagon
+
+**Intent:** Keep UI components thin by pushing all decision logic into framework-agnostic use case functions inside the hexagon.
+
+**How it works:** The frontend hexagon contains: domain model types (`Course`, `User`), repository port interfaces (`CourseRepository`), and use case functions (`getAllCourses`, `createCourse`). The UI component (React, Vue, etc.) acts as a driving adapter — it calls a use case and renders the result. No fetch calls, no localStorage reads, no API URLs appear inside the hexagon.
+
+**Folder structure:**
+```
+src/
+  modules/
+    courses/
+      domain/
+        Course.ts             # Domain type (interface or class)
+        CourseRepository.ts   # Driven port (interface)
+      application/
+        get-all/
+          getAllCourses.ts     # Use case function
+        create/
+          createCourse.ts     # Use case function
+      infrastructure/
+        HttpCourseRepository.ts          # Driven adapter (fetch API)
+        LocalStorageCourseRepository.ts  # Driven adapter (localStorage)
+        InMemoryCourseRepository.ts      # Test double
+  sections/
+    courses/
+      CoursesSection.tsx   # Driving adapter (React component)
+```
+
+**Practical heuristic:** If your React/Vue component imports `fetch`, `axios`, or `localStorage` directly, the hexagon boundary has been broken. The component should only import use case functions.
+
+---
+
+### Domain Model in the Frontend
+
+**Intent:** Define what the application cares about as a pure TypeScript type — no framework, no HTTP, no DOM.
+
+**How it works:** A frontend domain model is typically a plain TypeScript interface. Unlike backend DDD where the aggregate has rich behavior, the frontend domain model often represents a read model: the data shape the UI needs to display or manipulate. The key rule is that it must be definable without importing any framework.
+
+**Example:**
+```typescript
+// src/modules/courses/domain/Course.ts
+export interface Course {
+  id: string;
+  title: string;
+  imageUrl: string;
+}
+```
+
+**Practical heuristic:** If your domain type imports anything from `react`, `vue`, `axios`, or your HTTP client, it belongs in infrastructure, not domain. A domain type should be portable to a CLI, a test, or a different framework without changes.
+
+---
+
+### Repository Port in the Frontend
+
+**Intent:** Declare what the application layer needs from data sources using a domain-language interface, with no technology details.
+
+**How it works:** The `CourseRepository` interface lives in `domain/` and describes the operations the use cases need. The interface uses domain types as parameters and return values. Multiple adapters can implement the same port: one fetches from an HTTP API, another reads from localStorage, a third uses in-memory data for tests. The use case never knows which adapter it has.
+
+**Example:**
+```typescript
+// src/modules/courses/domain/CourseRepository.ts
+import { Course } from './Course';
+
+export interface CourseRepository {
+  save(course: Course): void;
+  getAll(): Promise<Course[]>;
+}
+```
+
+**Practical heuristic:** A repository port should read like a domain vocabulary list — `save`, `getAll`, `findById`. If you see `get('/api/courses')` or `localStorage.getItem()` in an interface, it belongs in the adapter, not the port.
+
+---
+
+### Use Case Functions in the Frontend
+
+**Intent:** Express application behavior as pure functions that depend only on the repository port interface, making them testable without any infrastructure.
+
+**How it works:** A frontend use case accepts the repository as a parameter (dependency injection by argument) and returns the domain result. Two styles appear in the CodelyTV course: a simple function that directly accepts the repository and arguments, and a curried function that closes over the repository and returns an executable function. Both keep the use case 100% framework-free.
+
+**Example:**
+```typescript
+// Simple style — src/modules/courses/application/create/createCourse.ts
+import { Course } from '../../domain/Course';
+import { CourseRepository } from '../../domain/CourseRepository';
+
+export function createCourse(
+  courseRepository: CourseRepository,
+  course: Course
+): void {
+  courseRepository.save(course);
+}
+
+// Curried style — src/modules/courses/application/get-all/getAllCourses.ts
+import { Course } from '../../domain/Course';
+import { CourseRepository } from '../../domain/CourseRepository';
+
+export function getAllCourses(courseRepository: CourseRepository) {
+  return async function (): Promise<Course[]> {
+    return courseRepository.getAll();
+  };
+}
+```
+
+**Practical heuristic:** If the use case function body contains `fetch`, `axios`, `useState`, or any framework API, it has leaked into infrastructure. The function should only call methods on the port interface it received.
+
+---
+
+### Driven Adapters: Infrastructure Implementations
+
+**Intent:** Implement the repository port for a specific technology, keeping all technology-specific code — URLs, HTTP clients, storage keys — in one isolated class or factory function.
+
+**How it works:** Each adapter implements the `CourseRepository` interface using a concrete technology. The `LocalStorageCourseRepository` uses `localStorage`; an `HttpCourseRepository` would use `fetch`. Adapters created as factory functions (rather than classes) are idiomatic in functional TypeScript. The adapter is wired to the use case in the component or a composition root — never inside the use case itself.
+
+**Example:**
+```typescript
+// src/modules/courses/infrastructure/LocalStorageCourseRepository.ts
+import { Course } from '../domain/Course';
+import { CourseRepository } from '../domain/CourseRepository';
+
+export function createLocalStorageCourseRepository(): CourseRepository {
+  return { save };
+}
+
+function save(course: Course): void {
+  const courses = getAllFromLocalStorage();
+  courses.set(course.id, course);
+  localStorage.setItem('courses', JSON.stringify(Array.from(courses.entries())));
+}
+
+function getAllFromLocalStorage(): Map<string, Course> {
+  const courses = localStorage.getItem('courses');
+  if (courses === null) return new Map();
+  return new Map(JSON.parse(courses) as Iterable<[string, Course]>);
+}
+```
+
+**Practical heuristic:** Every line in an adapter that references a technology-specific API (`fetch`, `localStorage`, `indexedDB`, `axios`) is correct and expected there. Any such line found outside an adapter is a boundary violation.
+
+---
+
+### Testing Frontend Hexagonal Code
+
+**Intent:** Test use cases in complete isolation from the browser, network, and UI framework by substituting real adapters with in-memory test doubles.
+
+**How it works:** The in-memory repository implements the same `CourseRepository` interface using a plain JavaScript `Map`. The test instantiates the in-memory repository, calls the use case passing that repository, then asserts against the repository's state. No browser APIs, no mocking frameworks, no HTTP servers are needed. The test is a fast, deterministic unit test.
+
+**Example:**
+```typescript
+// src/modules/courses/infrastructure/InMemoryCourseRepository.ts
+import { Course } from '../domain/Course';
+import { CourseRepository } from '../domain/CourseRepository';
+
+export function createInMemoryCourseRepository(): CourseRepository & {
+  getStoredCourses(): Map<string, Course>;
+} {
+  const store = new Map<string, Course>();
+
+  return {
+    save(course: Course): void {
+      store.set(course.id, course);
+    },
+    async getAll(): Promise<Course[]> {
+      return Array.from(store.values());
+    },
+    getStoredCourses() {
+      return store;
+    },
+  };
+}
+
+// createCourse.test.ts
+import { createCourse } from '../application/create/createCourse';
+import { createInMemoryCourseRepository } from '../infrastructure/InMemoryCourseRepository';
+
+describe('createCourse use case', () => {
+  it('saves the course to the repository', () => {
+    const repository = createInMemoryCourseRepository();
+    const course = { id: '1', title: 'DDD Course', imageUrl: '/img.png' };
+
+    createCourse(repository, course);
+
+    expect(repository.getStoredCourses().get('1')).toEqual(course);
+  });
+});
+```
+
+**Practical heuristic:** If your use case test imports anything from a browser API, a framework, or a network library, the hexagon boundary is broken and the test is testing more than one thing. Fix the boundary first, then the test becomes trivial.

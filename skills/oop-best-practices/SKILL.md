@@ -114,6 +114,9 @@ Use it especially when the task benefits from:
 - Read `references/method-design.md` when method length, abstraction level, or intention-revealing structure is the problem.
 - Read `references/gradual-abstraction.md` when the right moment to introduce abstraction is unclear or the design is being over-engineered too early.
 - Read `references/language-examples.md` for small multi-language examples.
+- Read `references/simple-design-rules.md` for Kent Beck's 4 Rules of Simple Design: passes tests, reveals intention, no duplication, fewest elements — with CodelyTV examples.
+- Read `references/oop-good-practices-examples.md` for Law of Demeter, Tell Don't Ask, Named Constructors, and cohesion/coupling examples from CodelyTV.
+- Read `references/value-objects-advanced.md` for advanced Value Object patterns: base class hierarchies (StringValueObject, Uuid), optional field strategies, typed collections, domain exceptions as named classes.
 
 ## Related Skills
 

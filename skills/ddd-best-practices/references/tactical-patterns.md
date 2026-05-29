@@ -172,6 +172,116 @@ The Repository gives four advantages:
 
 **Evans quote or key insight:** "A REPOSITORY represents all objects of a certain type as a conceptual set (usually emulated). It acts like a collection, except with more elaborate querying capability." The key insight is the distinction from Factory: a Factory makes *new* objects; a Repository finds *existing* ones — reconstitution is not creation.
 
+### Repository: Concrete Implementation Strategies
+
+**Aggregate-only repositories:** Only Aggregate Roots get their own Repository. Internal entities and value objects within an Aggregate are loaded by traversal from the root, never by a separate Repository query. This enforces the Aggregate boundary and prevents bypassing invariants.
+
+**The interface lives in the domain, the implementation in infrastructure:**
+```typescript
+// domain/CourseRepository.ts — pure domain interface, no imports from infra
+export interface CourseRepository {
+  save(course: Course): Promise<void>;
+  search(id: CourseId): Promise<Course | null>;
+  searchAll(): Promise<Course[]>;
+}
+
+// infrastructure/PostgresCourseRepository.ts — infra implementation
+export class PostgresCourseRepository
+  extends PostgresRepository<Course>
+  implements CourseRepository
+{
+  async save(course: Course): Promise<void> {
+    const p = course.toPrimitives();
+    await this.execute`
+      INSERT INTO mooc.courses (id, name, summary, categories, published_at)
+      VALUES (${p.id}, ${p.name}, ${p.summary}, ${p.categories}, ${p.publishedAt})
+      ON CONFLICT (id) DO UPDATE SET
+        name = EXCLUDED.name,
+        summary = EXCLUDED.summary,
+        categories = EXCLUDED.categories,
+        published_at = EXCLUDED.published_at;
+    `;
+  }
+
+  async search(id: CourseId): Promise<Course | null> {
+    return this.searchOne`
+      SELECT id, name, summary, categories, published_at
+      FROM mooc.courses WHERE id = ${id.value};
+    `;
+  }
+
+  protected toAggregate(row: DatabaseCourseRow): Course {
+    return Course.fromPrimitives({
+      id: row.id, name: row.name, summary: row.summary,
+      categories: row.categories,
+      publishedAt: row.published_at.toISOString(),
+    });
+  }
+}
+```
+
+**`search` vs `find` convention:** Use `search` (returns `T | null`) when absence is a valid result the caller must handle. Use `find` (throws a typed domain error) when the object is expected to exist and its absence signals a domain invariant violation.
+
+```typescript
+// domain/UserRepository.ts
+export interface UserRepository {
+  save(user: User): Promise<void>;
+  search(id: UserId): Promise<User | null>;  // caller handles null
+}
+
+// application/UserFinder.ts — wraps repository with a domain-named error
+export class UserFinder {
+  constructor(private readonly repository: UserRepository) {}
+
+  async find(id: string): Promise<User> {
+    const user = await this.repository.search(new UserId(id));
+    if (user === null) throw new UserDoesNotExistError(id);
+    return user;
+  }
+}
+```
+
+**Repository with Criteria (Specification-based querying):** For flexible, composable queries, the Repository accepts a `Criteria` object instead of individual filter parameters. This keeps SQL out of the domain and allows the same query logic to work across multiple storage backends.
+
+```typescript
+// domain/CourseRepository.ts — accepts Criteria, not raw SQL params
+export interface CourseRepository {
+  save(course: Course): Promise<void>;
+  search(id: CourseId): Promise<Course | null>;
+  matching(criteria: Criteria): Promise<Course[]>;
+}
+
+// infrastructure — converts Criteria to SQL
+async matching(criteria: Criteria): Promise<Course[]> {
+  const { query, params } = this.criteriaConverter.convert(criteria);
+  const rows = await this.db.query(query, params);
+  return rows.map(this.toAggregate);
+}
+```
+
+**Testing repositories with an in-memory fake:** The interface-in-domain / implementation-in-infrastructure split enables a fast in-memory fake for unit and integration tests without touching a real database.
+
+```typescript
+// tests/InMemoryUserRepository.ts
+export class InMemoryUserRepository implements UserRepository {
+  private users: Map<string, User> = new Map();
+
+  async save(user: User): Promise<void> {
+    this.users.set(user.id.value, user);
+  }
+
+  async search(id: UserId): Promise<User | null> {
+    return this.users.get(id.value) ?? null;
+  }
+}
+
+// In tests — no database, fully deterministic
+const repository = new InMemoryUserRepository();
+const finder = new UserFinder(repository);
+```
+
+**Practical heuristic:** If your application layer imports anything from an ORM or database driver, the Repository abstraction has leaked. The application layer should only know the domain interface.
+
 ---
 
 ## Factory
