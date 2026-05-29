@@ -6,6 +6,9 @@ Use this file as an index to the language-specific functional programming refere
 
 - `references/javascript-examples.md` — native ES2022+, Ramda, fp-ts
 - `references/typescript-examples.md` — fp-ts, Effect-TS, branded types
+- `references/python-examples.md` — functools, itertools, returns, pattern matching (3.10+)
+- `references/go-examples.md` — first-class functions, generics (1.18+), functional options, `(value, error)`
+- `references/rust-examples.md` — Iterator trait, Option/Result, enums, newtype pattern, `?` operator
 - `references/haskell-examples.md` — pure FP reference, typeclasses, IO monad
 - `references/elm-examples.md` — frontend FP, The Elm Architecture, decoders
 - `references/clojure-examples.md` — LISP FP, threading macros, persistent data structures
@@ -53,4 +56,7 @@ Each language file covers the same concepts:
 | Elm | `\|>` | `>>` / `<<` | `Maybe` (built-in) | `Result` (built-in) | elm/core |
 | Clojure | `->` / `->>` | `comp` | `nil` + `some->` | maps + cond | clojure.core, spec |
 | F# | `\|>` | `>>` | `Option` (built-in) | `Result` (built-in) | FSharpPlus, Giraffe |
+| Python | `pipe` (toolz) | `compose` (toolz) | `Optional[T]` / `Maybe` (returns) | `Result` (returns) | functools, itertools, returns |
+| Go | closures / `Pipeline` fn | closures | `(value, bool)` / `sql.NullX` | `(value, error)` | stdlib, slices (1.21+) |
+| Rust | `.` method chaining | closures | `Option<T>` (built-in) | `Result<T,E>` (built-in) | std::iter, itertools |
 | Elixir | `\|>` | manual `fn` | `{:ok, _}` / `nil` | `{:ok, _}` / `{:error, _}` | Enum, Stream, OTP |

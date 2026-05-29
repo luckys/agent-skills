@@ -1,6 +1,6 @@
 ---
 name: fp-best-practices
-description: Functional Programming guidance for writing and reviewing clean, composable code. Use when naming functions or types, designing pure functions, applying function composition or pipe, choosing between algebraic data types (Maybe, Option, Either, Result), controlling side effects or IO boundaries, using higher-order functions (map, filter, reduce, flatMap), applying currying or partial application, avoiding mutation and shared state, or reviewing FP code in JavaScript, TypeScript, Haskell, Elm, Clojure, F#, Scala, or Elixir.
+description: Functional Programming guidance for writing and reviewing clean, composable code. Use when naming functions or types, designing pure functions, applying function composition or pipe, choosing between algebraic data types (Maybe, Option, Either, Result), controlling side effects or IO boundaries, using higher-order functions (map, filter, reduce, flatMap), applying currying or partial application, avoiding mutation and shared state, or reviewing FP code in JavaScript, TypeScript, Python, Go, Rust, Haskell, Elm, Clojure, F#, or Elixir.
 license: MIT
 metadata:
   author: luckys
@@ -129,6 +129,9 @@ Use it especially when the task benefits from:
 - Read `references/language-examples.md` for an index of language-specific example files and a quick reference table.
 - Read `references/javascript-examples.md` for examples in JavaScript (native, Ramda, fp-ts).
 - Read `references/typescript-examples.md` for examples in TypeScript (fp-ts, Effect-TS, branded types).
+- Read `references/python-examples.md` for examples in Python (functools, itertools, returns, pattern matching 3.10+).
+- Read `references/go-examples.md` for examples in Go (first-class functions, generics, functional options, `(value, error)`).
+- Read `references/rust-examples.md` for examples in Rust (Iterator trait, Option/Result, enums, newtype, `?` operator).
 - Read `references/haskell-examples.md` for examples in Haskell (pure FP reference, typeclasses, IO monad).
 - Read `references/elm-examples.md` for examples in Elm (frontend FP, The Elm Architecture, decoders).
 - Read `references/clojure-examples.md` for examples in Clojure (threading macros, persistent data structures).
