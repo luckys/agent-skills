@@ -39,6 +39,7 @@ description: When to invoke this skill — specific task types and contexts.
 | `design-patterns-best-practices` | Pattern selection (Strategy, State, Factory, Adapter, Decorator, Composite, GoF, PoEAA, Criteria) |
 | `ddd-best-practices` | Domain modeling, Bounded Contexts, Aggregates, Domain Events, CQRS, Event Sourcing, Hexagonal Architecture |
 | `infrastructure-design` | Event bus, transactions, caching strategies, database views, read model infrastructure |
+| `tdd-best-practices` | Red-Green-Refactor cycle, test doubles (mock/stub/fake), outside-in vs inside-out TDD, BDD, test anti-patterns, test pyramid |
 
 ## Adding a New Skill
 
