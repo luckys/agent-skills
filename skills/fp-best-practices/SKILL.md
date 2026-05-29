@@ -126,7 +126,14 @@ Use it especially when the task benefits from:
 - Read `references/algebraic-data-types.md` for Maybe/Option, Either/Result, tagged unions, and making illegal states unrepresentable.
 - Read `references/managing-side-effects.md` for IO boundaries, Reader/Writer/State patterns, and effect systems.
 - Read `references/higher-order-functions.md` for map, filter, reduce, flatMap, transducers, and functor/monad patterns.
-- Read `references/language-examples.md` for side-by-side examples in JavaScript, TypeScript, Haskell, Elm, Clojure, F#, and Elixir.
+- Read `references/language-examples.md` for an index of language-specific example files and a quick reference table.
+- Read `references/javascript-examples.md` for examples in JavaScript (native, Ramda, fp-ts).
+- Read `references/typescript-examples.md` for examples in TypeScript (fp-ts, Effect-TS, branded types).
+- Read `references/haskell-examples.md` for examples in Haskell (pure FP reference, typeclasses, IO monad).
+- Read `references/elm-examples.md` for examples in Elm (frontend FP, The Elm Architecture, decoders).
+- Read `references/clojure-examples.md` for examples in Clojure (threading macros, persistent data structures).
+- Read `references/fsharp-examples.md` for examples in F# (computation expressions, discriminated unions, pipelines).
+- Read `references/elixir-examples.md` for examples in Elixir (pipe operator, pattern matching, `with`, OTP).
 
 ## Related Skills
 
