@@ -1609,4 +1609,163 @@ active_premium = ActiveCustomerSpecification.new & PremiumCustomerSpecification.
 customers.select { |c| active_premium.satisfied_by?(c) }
 ```
 
+---
+
+## CQRS and Error Patterns
+
+### Command + CommandHandler (CQRS write side)
+
+**Intent:** Separate the write-side intent (command) from the logic that executes it (handler), keeping each independently testable.
+
+```ruby
+module Command; end
+module CommandHandler
+  def handle(command)
+    raise NotImplementedError
+  end
+end
+
+CreateUserCommand = Struct.new(:user_id, :email, :name, keyword_init: true) do
+  include Command
+  def initialize(**)
+    super
+    freeze
+  end
+end
+
+class CreateUserCommandHandler
+  include CommandHandler
+
+  def initialize(user_repository, event_bus)
+    @user_repository = user_repository
+    @event_bus       = event_bus
+  end
+
+  def handle(command)
+    user_id = UserId.new(command.user_id)
+    email   = Email.new(command.email)
+    user    = User.create(id: user_id, email: email, name: command.name)
+    @user_repository.save(user)
+    @event_bus.publish(user.pull_events)
+  end
+end
+```
+
+**Key point:** Commands are plain immutable structs of primitives; handlers own all orchestration so commands stay dependency-free.
+
+---
+
+### Object Mother
+
+**Intent:** Centralise valid test-fixture construction behind a factory so tests read intent, not setup noise.
+
+```ruby
+module UserIdMother
+  def self.random = UserId.new(SecureRandom.uuid)
+end
+
+class UserMother
+  def self.random
+    new(
+      id:    UserIdMother.random,
+      email: Email.new("user_#{SecureRandom.hex(4)}@example.com"),
+      name:  "User #{rand(1000)}"
+    )
+  end
+
+  def self.create(overrides = {})
+    defaults = { id: UserIdMother.random,
+                 email: Email.new("default@example.com"),
+                 name: "Default User" }
+    new(**defaults.merge(overrides))
+  end
+
+  private_class_method :new
+
+  def initialize(id:, email:, name:)
+    @id    = id
+    @email = email
+    @name  = name
+  end
+end
+```
+
+**Key point:** `random` builds a fully valid object with safe defaults; `create` accepts overrides so each test names only the attribute it cares about.
+
+---
+
+### DomainError hierarchy
+
+**Intent:** Give domain errors a stable machine-readable `type` that decouples error identity from class names.
+
+```ruby
+class DomainError < StandardError
+  def type
+    raise NotImplementedError, "#{self.class} must implement #type"
+  end
+end
+
+class UserNotFoundError < DomainError
+  def initialize(user_id)
+    super("User not found: #{user_id}")
+    @user_id = user_id
+  end
+
+  def type = "user.not_found"
+end
+
+# Rescue by base class, then branch on type if needed
+begin
+  user_repository.find(id)
+rescue UserNotFoundError => e
+  { error: e.type, message: e.message }
+rescue DomainError => e
+  { error: e.type, message: e.message }
+end
+```
+
+**Key point:** `type` is an explicit string constant, not `self.class.name`, so renaming a class never breaks API consumers.
+
+---
+
+### Either / Result type
+
+**Intent:** Make success and failure explicit return values instead of exceptions for expected domain outcomes.
+
+```ruby
+class Result
+  attr_reader :value, :error
+
+  def self.ok(value)      = new(value: value)
+  def self.failure(error) = new(error: error)
+
+  def ok?      = @error.nil?
+  def failure? = !ok?
+
+  private
+
+  def initialize(value: nil, error: nil)
+    @value = value
+    @error = error
+    freeze
+  end
+end
+
+# Returning a Result
+def find_user(id)
+  user = repository.find(id)
+  user ? Result.ok(user) : Result.failure(UserNotFoundError.new(id))
+end
+
+# Caller pattern-matches on the result
+result = find_user(params[:id])
+if result.ok?
+  render json: result.value
+else
+  render json: { error: result.error.type }, status: :not_found
+end
+```
+
+**Key point:** Callers are forced to handle both branches at compile-read time; no hidden control-flow jumps via exceptions.
+
 **Key point:** Business rules are named, testable objects that compose naturally — `active & premium` reads like the domain language and adds no branching to the host class.

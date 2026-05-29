@@ -1860,4 +1860,171 @@ assert eligible.is_satisfied_by(customer)  # True
 
 **Key point:** Business rules are named, testable objects that compose via `&`, `|`, and `~` without modifying either rule.
 
+## CQRS and Error Patterns
+
+### Command + CommandHandler (CQRS write side)
+
+**Intent:** Separate the write-side intent (Command) from its execution logic (CommandHandler) using a generic protocol.
+
+```python
+from dataclasses import dataclass
+from typing import Generic, Protocol, TypeVar
+
+T = TypeVar("T")
+
+@dataclass(frozen=True)
+class Command:
+    """Abstract marker for all commands."""
+
+@dataclass(frozen=True)
+class CreateUserCommand(Command):
+    user_id: str
+    email: str
+    name: str
+
+class CommandHandler(Protocol[T]):
+    def handle(self, command: T) -> None: ...
+
+class CreateUserCommandHandler:
+    def __init__(self, user_repo, event_bus) -> None:
+        self._repo = user_repo
+        self._bus = event_bus
+
+    def handle(self, command: CreateUserCommand) -> None:
+        user_id = UserId(command.user_id)
+        email = Email(command.email)
+        user = User.create(user_id, email, command.name)
+        self._repo.save(user)
+        self._bus.publish(user.pull_events())
+```
+
+**Key point:** Commands are immutable value objects; handlers own all orchestration so the domain stays free of infrastructure concerns.
+
+### Object Mother
+
+**Intent:** Centralise valid test-fixture construction in one place so tests stay readable and resilient to domain changes.
+
+```python
+import uuid
+from dataclasses import dataclass
+
+@dataclass(frozen=True)
+class UserId:
+    value: str
+
+@dataclass
+class User:
+    id: UserId
+    email: str
+    name: str
+
+class UserIdMother:
+    @staticmethod
+    def random() -> UserId:
+        return UserId(value=str(uuid.uuid4()))
+
+class UserMother:
+    @staticmethod
+    def random() -> User:
+        return User(
+            id=UserIdMother.random(),
+            email=f"user_{uuid.uuid4().hex[:6]}@example.com",
+            name="Test User",
+        )
+
+    @staticmethod
+    def create(**overrides) -> User:
+        base = UserMother.random()
+        return User(**{**base.__dict__, **overrides})
+```
+
+**Key point:** `random()` produces a complete valid aggregate; `create(**overrides)` lets tests pin only the fields that matter.
+
+### DomainError hierarchy
+
+**Intent:** Give every domain error a stable string type that survives minification, serialisation, and class renaming.
+
+```python
+from abc import ABC, abstractmethod
+
+class DomainError(ABC, Exception):
+    @property
+    @abstractmethod
+    def type(self) -> str:
+        """Stable error type identifier — never use __class__.__name__ in production."""
+
+    def __str__(self) -> str:
+        return f"[{self.type}] {self.args[0] if self.args else ''}"
+
+class UserNotFoundError(DomainError):
+    def __init__(self, user_id: str) -> None:
+        super().__init__(f"User '{user_id}' not found")
+        self.user_id = user_id
+
+    @property
+    def type(self) -> str:
+        return "USER_NOT_FOUND"
+
+# Error handling
+try:
+    raise UserNotFoundError("abc-123")
+except DomainError as err:
+    if err.type == "USER_NOT_FOUND":
+        print("handle missing user")
+```
+
+**Key point:** The `type` property is a hand-written constant so error identity is stable across refactors and deployments.
+
+### Either / Result type
+
+**Intent:** Make failure an explicit part of the return type so callers are forced to handle both branches without exceptions.
+
+```python
+from dataclasses import dataclass
+from typing import Generic, TypeVar, Union
+
+TValue = TypeVar("TValue")
+TError = TypeVar("TError")
+
+@dataclass(frozen=True)
+class Result(Generic[TValue, TError]):
+    _value: Union[TValue, None]
+    _error: Union[TError, None]
+
+    @staticmethod
+    def ok(value: TValue) -> "Result[TValue, TError]":
+        return Result(_value=value, _error=None)
+
+    @staticmethod
+    def fail(error: TError) -> "Result[TValue, TError]":
+        return Result(_value=None, _error=error)
+
+    def is_ok(self) -> bool:
+        return self._error is None
+
+    @property
+    def value(self) -> TValue:
+        assert self._value is not None
+        return self._value
+
+    @property
+    def error(self) -> TError:
+        assert self._error is not None
+        return self._error
+
+def find_user(user_id: str) -> "Result[User, UserNotFoundError]":
+    user = db.get(user_id)
+    if user is None:
+        return Result.fail(UserNotFoundError(user_id))
+    return Result.ok(user)
+
+result = find_user("abc-123")
+if result.is_ok():
+    print(result.value)
+else:
+    print(result.error.type)
+```
+
+**Key point:** `Result` forces the caller to branch on `is_ok()` before accessing `value` or `error`, eliminating silent exception swallowing.
+
 **Key point:** `copy.deepcopy` inside `clone()` ensures nested structures (dicts, lists) are fully independent copies, so mutating a clone never corrupts the template or another clone.

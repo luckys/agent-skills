@@ -46,6 +46,12 @@ Each language file contains examples for the same 23 patterns:
 **Other**
 - Result Pattern — typed success/failure return instead of exceptions
 
+**CQRS and Error Patterns**
+- Command + CommandHandler — immutable command value object + typed handler interface (CQRS write side)
+- Object Mother — test fixture factory with `random()` and `create(overrides)` for deterministic test data
+- DomainError hierarchy — abstract base with explicit `type` string field; concrete typed errors per failure case
+- Either / Result — functional error type with `isOk()`/`isErr()` avoiding exception-driven flow
+
 **DDD Tactical Patterns**
 - Entity — object with unique identity; equality by ID, not attributes
 - Aggregate Root — entity controlling a cluster, enforcing invariants, collecting domain events

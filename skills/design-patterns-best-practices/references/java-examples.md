@@ -1616,4 +1616,167 @@ boolean result = eligibleForPromo.isSatisfiedBy(new Customer(true, 15_000)); // 
 
 **Key point:** Composing specifications with `and`/`or`/`not` expresses complex business rules without scattering conditionals.
 
+---
+
+## CQRS and Error Patterns
+
+### Command + CommandHandler (CQRS write side)
+
+**Intent:** Separate the write operation into an immutable value object (Command) and a handler that orchestrates domain logic.
+
+```java
+public abstract class Command {}
+
+public interface CommandHandler<T extends Command> {
+    void handle(T command);
+}
+
+public final class CreateUserCommand extends Command {
+    public final String id;
+    public final String email;
+    public final String name;
+
+    public CreateUserCommand(String id, String email, String name) {
+        this.id = id; this.email = email; this.name = name;
+    }
+}
+
+public final class CreateUserCommandHandler implements CommandHandler<CreateUserCommand> {
+    private final UserRepository userRepository;
+    private final EventBus eventBus;
+
+    public CreateUserCommandHandler(UserRepository userRepository, EventBus eventBus) {
+        this.userRepository = userRepository;
+        this.eventBus = eventBus;
+    }
+
+    @Override
+    public void handle(CreateUserCommand command) {
+        UserId id    = new UserId(command.id);
+        UserEmail email = new UserEmail(command.email);
+        User user   = User.create(id, email, command.name);
+        userRepository.save(user);
+        eventBus.publish(user.pullDomainEvents());
+    }
+}
+```
+
+**Key point:** The Command is a plain immutable value object; the handler owns orchestration — value object construction, aggregate creation, persistence, and event dispatch.
+
+---
+
+### Object Mother
+
+**Intent:** Provide a centralized factory for valid test objects so tests stay readable and free of setup boilerplate.
+
+```java
+public final class UserIdMother {
+    public static UserId random() {
+        return new UserId(UUID.randomUUID().toString());
+    }
+}
+
+public final class UserMother {
+    public static User random() {
+        return User.create(
+            UserIdMother.random(),
+            new UserEmail("user-" + UUID.randomUUID() + "@example.com"),
+            "Random User"
+        );
+    }
+
+    public static User withName(String name) {
+        return User.create(UserIdMother.random(), new UserEmail("alice@example.com"), name);
+    }
+}
+
+// In a test:
+User user = UserMother.withName("Bob");
+```
+
+**Key point:** Object Mothers generate complete, valid domain objects with sensible defaults, keeping test intent visible and setup noise invisible.
+
+---
+
+### DomainError hierarchy
+
+**Intent:** Give every domain error a stable, explicit string type so errors are identifiable without relying on class names.
+
+```java
+public abstract class DomainError extends RuntimeException {
+    private final String type;
+
+    protected DomainError(String type, String message) {
+        super(message);
+        this.type = type;
+    }
+
+    public String getType() { return type; }
+}
+
+public final class UserNotFoundError extends DomainError {
+    public UserNotFoundError(String id) {
+        super("UserNotFoundError", "User with id <" + id + "> not found");
+    }
+}
+
+// Usage in a catch block:
+try {
+    handler.handle(command);
+} catch (DomainError err) {
+    if ("UserNotFoundError".equals(err.getType())) {
+        // handle 404 path
+    }
+    throw err;
+}
+```
+
+**Key point:** Passing the type string explicitly to the base constructor keeps error identity stable across refactors and obfuscation — never rely solely on `getClass().getSimpleName()`.
+
+---
+
+### Either / Result type
+
+**Intent:** Make failure an explicit return value so callers are forced to handle both the success and error paths without hidden exception paths.
+
+```java
+public final class Result<TValue, TError extends DomainError> {
+    private final TValue value;
+    private final TError error;
+
+    private Result(TValue value, TError error) {
+        this.value = value; this.error = error;
+    }
+
+    public static <V, E extends DomainError> Result<V, E> ok(V value) {
+        return new Result<>(value, null);
+    }
+
+    public static <V, E extends DomainError> Result<V, E> err(E error) {
+        return new Result<>(null, error);
+    }
+
+    public boolean isOk()  { return error == null; }
+    public boolean isErr() { return error != null; }
+    public TValue getValue() { if (!isOk())  throw new IllegalStateException("No value"); return value; }
+    public TError getError() { if (!isErr()) throw new IllegalStateException("No error"); return error; }
+}
+
+// Domain method:
+Result<User, UserNotFoundError> findUser(String id) {
+    User user = store.get(id);
+    return user != null ? Result.ok(user) : Result.err(new UserNotFoundError(id));
+}
+
+// Caller:
+Result<User, UserNotFoundError> result = findUser("abc");
+if (result.isOk()) {
+    System.out.println(result.getValue().getName());
+} else {
+    System.err.println(result.getError().getMessage());
+}
+```
+
+**Key point:** Returning `Result<TValue, TError>` instead of throwing makes the failure contract explicit in the method signature and forces the caller to handle both paths.
+
 **Key point:** `clone()` produces a fully configured copy with independent state — callers avoid repeating header/footer setup for every new document.

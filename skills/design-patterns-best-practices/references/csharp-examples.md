@@ -1685,4 +1685,157 @@ Console.WriteLine(eligible.IsSatisfiedBy(customer)); // True
 
 **Key point:** Business rules are named, testable objects that compose via `And`, `Or`, and `Not` without modifying either rule.
 
+## CQRS and Error Patterns
+
+### Command + CommandHandler (CQRS write side)
+
+**Intent:** Separate the write-side intent (Command) from its execution logic (CommandHandler) using a generic interface.
+
+```csharp
+public abstract record Command;
+
+public sealed record CreateUserCommand(
+    string UserId,
+    string Email,
+    string Name) : Command;
+
+public interface ICommandHandler<in TCommand> where TCommand : Command
+{
+    void Handle(TCommand command);
+}
+
+public sealed class CreateUserCommandHandler : ICommandHandler<CreateUserCommand>
+{
+    private readonly IUserRepository _repo;
+    private readonly IEventBus _bus;
+
+    public CreateUserCommandHandler(IUserRepository repo, IEventBus bus)
+        => (_repo, _bus) = (repo, bus);
+
+    public void Handle(CreateUserCommand command)
+    {
+        var userId = new UserId(command.UserId);
+        var email = new Email(command.Email);
+        var user = User.Create(userId, email, command.Name);
+        _repo.Save(user);
+        _bus.Publish(user.PullEvents());
+    }
+}
+```
+
+**Key point:** Commands are immutable records; handlers own all orchestration so the domain stays free of infrastructure concerns.
+
+### Object Mother
+
+**Intent:** Centralise valid test-fixture construction in one place so tests stay readable and resilient to domain changes.
+
+```csharp
+public sealed record UserId(string Value);
+
+public sealed class User
+{
+    public UserId Id { get; init; } = default!;
+    public string Email { get; init; } = default!;
+    public string Name { get; init; } = default!;
+}
+
+public static class UserIdMother
+{
+    public static UserId Random() => new(Guid.NewGuid().ToString());
+}
+
+public static class UserMother
+{
+    public static User Random() => new()
+    {
+        Id = UserIdMother.Random(),
+        Email = $"user_{Guid.NewGuid():N[..6]}@example.com",
+        Name = "Test User",
+    };
+
+    public static User Create(Action<User> overrides)
+    {
+        var user = Random();
+        overrides(user);
+        return user;
+    }
+}
+```
+
+**Key point:** `Random()` produces a complete valid aggregate; `Create(overrides)` lets tests pin only the fields that matter.
+
+### DomainError hierarchy
+
+**Intent:** Give every domain error a stable string type that survives minification, serialisation, and class renaming.
+
+```csharp
+public abstract class DomainError : Exception
+{
+    /// <summary>Stable error type — never use GetType().Name in production.</summary>
+    public abstract string Type { get; }
+
+    protected DomainError(string message) : base(message) { }
+
+    public override string ToString() => $"[{Type}] {Message}";
+}
+
+public sealed class UserNotFoundError : DomainError
+{
+    public string UserId { get; }
+
+    public UserNotFoundError(string userId)
+        : base($"User '{userId}' not found")
+        => UserId = userId;
+
+    public override string Type => "USER_NOT_FOUND";
+}
+
+// Error handling
+try { throw new UserNotFoundError("abc-123"); }
+catch (DomainError err) when (err.Type == "USER_NOT_FOUND")
+{
+    Console.WriteLine("handle missing user");
+}
+```
+
+**Key point:** The `Type` property is a hand-written constant so error identity is stable across refactors and deployments.
+
+### Either / Result type
+
+**Intent:** Make failure an explicit part of the return type so callers are forced to handle both branches without exceptions.
+
+```csharp
+public sealed class Result<TValue, TError>
+{
+    private readonly TValue? _value;
+    private readonly TError? _error;
+
+    private Result(TValue value) => _value = value;
+    private Result(TError error, bool _) => _error = error;
+
+    public static Result<TValue, TError> Ok(TValue value) => new(value);
+    public static Result<TValue, TError> Fail(TError error) => new(error, false);
+
+    public bool IsOk() => _error is null;
+    public TValue Value => _value!;
+    public TError Error => _error!;
+}
+
+public Result<User, UserNotFoundError> FindUser(string userId)
+{
+    var user = _db.Get(userId);
+    return user is null
+        ? Result<User, UserNotFoundError>.Fail(new UserNotFoundError(userId))
+        : Result<User, UserNotFoundError>.Ok(user);
+}
+
+var result = FindUser("abc-123");
+if (result.IsOk())
+    Console.WriteLine(result.Value);
+else
+    Console.WriteLine(result.Error.Type);
+```
+
+**Key point:** `Result<TValue, TError>` forces the caller to branch on `IsOk()` before accessing `Value` or `Error`, eliminating silent exception swallowing.
+
 **Key point:** `Clone()` performs a deep copy so the new instance shares no mutable state with the original, making it safe to customize the clone without affecting the template.

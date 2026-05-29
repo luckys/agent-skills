@@ -1853,4 +1853,168 @@ $spec = (new ActiveCustomerSpecification())->and(new PremiumCustomerSpecificatio
 $eligible = array_filter($customers, fn($c) => $spec->isSatisfiedBy($c));
 ```
 
+---
+
+## CQRS and Error Patterns
+
+### Command + CommandHandler (CQRS write side)
+
+**Intent:** Separate the write-side intent (command) from the logic that executes it (handler), keeping each independently testable.
+
+```php
+interface Command {}
+
+interface CommandHandler
+{
+    public function handle(Command $command): void;
+}
+
+final readonly class CreateUserCommand implements Command
+{
+    public function __construct(
+        public string $userId,
+        public string $email,
+        public string $name,
+    ) {}
+}
+
+final class CreateUserCommandHandler implements CommandHandler
+{
+    public function __construct(
+        private UserRepository $userRepository,
+        private EventBus $eventBus,
+    ) {}
+
+    public function handle(Command $command): void
+    {
+        $userId = new UserId($command->userId);
+        $email  = new Email($command->email);
+        $user   = User::create($userId, $email, $command->name);
+        $this->userRepository->save($user);
+        $this->eventBus->publish($user->pullEvents());
+    }
+}
+```
+
+**Key point:** Commands are readonly value objects of primitives; handlers own all orchestration so commands stay dependency-free.
+
+---
+
+### Object Mother
+
+**Intent:** Centralise valid test-fixture construction behind a factory so tests read intent, not setup noise.
+
+```php
+final class UserIdMother
+{
+    public static function random(): UserId
+    {
+        return new UserId(uuid_create());
+    }
+}
+
+final class UserMother
+{
+    public static function random(): User
+    {
+        $hex = bin2hex(random_bytes(4));
+        return new User(
+            id:    UserIdMother::random(),
+            email: new Email("user_{$hex}@example.com"),
+            name:  'User ' . rand(1, 1000),
+        );
+    }
+
+    public static function create(array $overrides = []): User
+    {
+        $defaults = [
+            'id'    => UserIdMother::random(),
+            'email' => new Email('default@example.com'),
+            'name'  => 'Default User',
+        ];
+        $data = array_merge($defaults, $overrides);
+        return new User($data['id'], $data['email'], $data['name']);
+    }
+}
+```
+
+**Key point:** `random()` builds a fully valid object with safe defaults; `create()` accepts overrides so each test names only the attribute it cares about.
+
+---
+
+### DomainError hierarchy
+
+**Intent:** Give domain errors a stable machine-readable `type` that decouples error identity from class names.
+
+```php
+abstract class DomainError extends \RuntimeException
+{
+    abstract public function type(): string;
+}
+
+final class UserNotFoundError extends DomainError
+{
+    public function __construct(private readonly string $userId)
+    {
+        parent::__construct("User not found: {$userId}");
+    }
+
+    public function type(): string
+    {
+        return 'user.not_found';
+    }
+}
+
+// Catch by base class, branch on type() if needed
+try {
+    $userRepository->find($id);
+} catch (UserNotFoundError $e) {
+    return ['error' => $e->type(), 'message' => $e->getMessage()];
+} catch (DomainError $e) {
+    return ['error' => $e->type(), 'message' => $e->getMessage()];
+}
+```
+
+**Key point:** `type()` is an explicit string constant, not `static::class`, so renaming a class never breaks API consumers.
+
+---
+
+### Either / Result type
+
+**Intent:** Make success and failure explicit return values instead of exceptions for expected domain outcomes.
+
+```php
+final class Result
+{
+    private function __construct(
+        private readonly mixed $value,
+        private readonly mixed $error,
+    ) {}
+
+    public static function ok(mixed $value): self    { return new self($value, null); }
+    public static function failure(mixed $error): self { return new self(null, $error); }
+
+    public function isOk(): bool      { return $this->error === null; }
+    public function isFailure(): bool { return !$this->isOk(); }
+    public function value(): mixed    { return $this->value; }
+    public function error(): mixed    { return $this->error; }
+}
+
+// Returning a Result
+function findUser(string $id, UserRepository $repo): Result
+{
+    $user = $repo->find($id);
+    return $user !== null ? Result::ok($user) : Result::failure(new UserNotFoundError($id));
+}
+
+// Caller pattern-matches on the result
+$result = findUser($request->id, $userRepository);
+if ($result->isOk()) {
+    return new JsonResponse($result->value());
+}
+return new JsonResponse(['error' => $result->error()->type()], 404);
+```
+
+**Key point:** Callers are forced to handle both branches explicitly; no hidden control-flow jumps via exceptions.
+
 **Key point:** Business rules are named, testable objects that compose naturally — `and`/`or`/`not` read like domain language and add no branching to the host class.

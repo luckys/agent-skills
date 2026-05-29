@@ -1591,4 +1591,165 @@ console.log(eligibleForPromo.isSatisfiedBy({ active: true, totalSpend: 15_000 })
 
 **Key point:** Composing specifications with `and`/`or`/`not` expresses complex business rules without scattering conditionals.
 
+---
+
+## CQRS and Error Patterns
+
+### Command + CommandHandler (CQRS write side)
+
+**Intent:** Separate the write operation into an immutable value object (Command) and a handler that orchestrates domain logic.
+
+```typescript
+abstract class Command {}
+
+interface CommandHandler<T extends Command> {
+  handle(command: T): Promise<void>
+}
+
+class CreateUserCommand extends Command {
+  constructor(
+    readonly id: string,
+    readonly email: string,
+    readonly name: string,
+  ) { super() }
+}
+
+class CreateUserCommandHandler implements CommandHandler<CreateUserCommand> {
+  constructor(
+    private readonly userRepository: UserRepository,
+    private readonly eventBus: EventBus,
+  ) {}
+
+  async handle(command: CreateUserCommand): Promise<void> {
+    const id    = new UserId(command.id)
+    const email = new UserEmail(command.email)
+    const user  = User.create(id, email, command.name)
+    await this.userRepository.save(user)
+    await this.eventBus.publish(user.pullDomainEvents())
+  }
+}
+```
+
+**Key point:** The Command is a plain immutable value object; the handler owns orchestration — value object construction, aggregate creation, persistence, and event dispatch.
+
+---
+
+### Object Mother
+
+**Intent:** Provide a centralized factory for valid test objects so tests stay readable and free of setup boilerplate.
+
+```typescript
+class UserIdMother {
+  static random(): UserId {
+    return new UserId(crypto.randomUUID())
+  }
+}
+
+type UserOverrides = Partial<{ id: UserId; email: string; name: string }>
+
+class UserMother {
+  static random(): User {
+    return User.create(
+      UserIdMother.random(),
+      new UserEmail(`user-${Math.random().toString(36).slice(2)}@example.com`),
+      'Random User',
+    )
+  }
+
+  static create(overrides: UserOverrides = {}): User {
+    return User.create(
+      overrides.id    ?? UserIdMother.random(),
+      new UserEmail(overrides.email ?? 'alice@example.com'),
+      overrides.name  ?? 'Alice',
+    )
+  }
+}
+
+// In a test:
+const user = UserMother.create({ name: 'Bob' })
+```
+
+**Key point:** Object Mothers generate complete, valid domain objects with sensible defaults, keeping test intent visible and setup noise invisible.
+
+---
+
+### DomainError hierarchy
+
+**Intent:** Give every domain error a stable, explicit string type so errors survive minification and production builds.
+
+```typescript
+abstract class DomainError extends Error {
+  abstract readonly type: string
+
+  constructor(message: string) {
+    super(message)
+    this.name = this.constructor.name
+  }
+}
+
+class UserNotFoundError extends DomainError {
+  readonly type = 'UserNotFoundError'
+
+  constructor(id: string) {
+    super(`User with id <${id}> not found`)
+  }
+}
+
+// Usage in a catch block:
+try {
+  await handler.handle(command)
+} catch (err) {
+  if (err instanceof DomainError && err.type === 'UserNotFoundError') {
+    // handle 404 path
+  }
+  throw err
+}
+```
+
+**Key point:** Use an explicit `readonly type` string instead of `constructor.name` — minifiers rename classes, making `constructor.name` unreliable in production builds.
+
+---
+
+### Either / Result type
+
+**Intent:** Make failure an explicit return value so callers are forced to handle both the success and error paths at compile time.
+
+```typescript
+class Result<TValue, TError extends DomainError> {
+  private constructor(
+    private readonly _value: TValue | undefined,
+    private readonly _error: TError | undefined,
+  ) {}
+
+  static ok<TValue, TError extends DomainError>(value: TValue): Result<TValue, TError> {
+    return new Result(value, undefined)
+  }
+
+  static err<TValue, TError extends DomainError>(error: TError): Result<TValue, TError> {
+    return new Result(undefined, error)
+  }
+
+  isOk():  boolean { return this._error === undefined }
+  isErr(): boolean { return this._error !== undefined }
+  getValue(): TValue { if (!this.isOk())  throw new Error('No value'); return this._value! }
+  getError(): TError { if (!this.isErr()) throw new Error('No error'); return this._error! }
+}
+
+// Domain method:
+function findUser(id: string): Result<User, UserNotFoundError> {
+  const user = store.get(id)
+  return user ? Result.ok(user) : Result.err(new UserNotFoundError(id))
+}
+
+// Caller:
+const result = findUser('abc')
+if (result.isOk()) {
+  console.log(result.getValue().name)
+} else {
+  console.error(result.getError().message)
+}
+```
+
+**Key point:** Returning `Result<TValue, TError>` instead of throwing makes the failure contract explicit in the type signature and forces the caller to handle both paths.
+
 **Key point:** Each clone is an independent deep copy — mutating one report does not affect the template or sibling reports cloned from it.
