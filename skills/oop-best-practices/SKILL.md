@@ -117,7 +117,9 @@ Use it especially when the task benefits from:
 - Read `references/dependency-management.md` when coupling, dependency direction, or collaborator injection decisions are the focus.
 - Read `references/method-design.md` when method length, abstraction level, or intention-revealing structure is the problem.
 - Read `references/gradual-abstraction.md` when the right moment to introduce abstraction is unclear or the design is being over-engineered too early.
-- Read `references/language-examples.md` for small multi-language examples.
+- Read `references/language-examples.md` for an index of language-specific example files (TypeScript, Java, Python, C#, Ruby, PHP, Go, Rust).
+- Read `references/go-examples.md` for OOP concepts in Go (structs, implicit interfaces, composition, no inheritance).
+- Read `references/rust-examples.md` for OOP concepts in Rust (structs, traits, newtype pattern, ownership as immutability).
 - Read `references/simple-design-rules.md` for Kent Beck's 4 Rules of Simple Design: passes tests, reveals intention, no duplication, fewest elements — with CodelyTV examples.
 - Read `references/oop-good-practices-examples.md` for Law of Demeter, Tell Don't Ask, Named Constructors, and cohesion/coupling examples from CodelyTV.
 - Read `references/value-objects-advanced.md` for advanced Value Object patterns: base class hierarchies (StringValueObject, Uuid), optional field strategies, typed collections, domain exceptions as named classes.
