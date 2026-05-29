@@ -40,6 +40,7 @@ Day-to-day OOP guidance for writing and reviewing clean, maintainable code.
 - Value objects, first-class collections, and primitive obsession
 - Message-based design and role-oriented objects
 - SOLID principles in practice
+- Examples in TypeScript, Java, Python, C#, Ruby, PHP, Go, and Rust
 
 ### refactoring-best-practices
 
@@ -60,6 +61,7 @@ Pattern selection and application guidance for OO systems.
 - Criteria pattern (composable filters, ordering, pagination)
 - Clean Architecture layers and the Dependency Rule
 - Kent Beck's Implementation Patterns
+- Examples in TypeScript, Java, Python, C#, Ruby, PHP, Go, and Rust
 
 ### ddd-best-practices
 
@@ -91,7 +93,7 @@ Test-Driven Development guidance for driving implementation from tests.
 - London (outside-in) vs Chicago (inside-out) schools
 - BDD (Given/When/Then) and ATDD
 - James Carr's 15 anti-patterns + Ian Cooper's "TDD, Where Did It All Go Wrong"
-- Examples in TypeScript, Java, Python, C#, Ruby, and PHP
+- Examples in TypeScript, Java, Python, C#, Ruby, PHP, Go, and Rust
 
 ### fp-best-practices
 
@@ -103,7 +105,7 @@ Functional Programming guidance for writing clean, composable, and predictable c
 - Making illegal states unrepresentable with branded types
 - Separating pure core from impure shell; dependency injection via function parameters
 - Higher-order functions: map, filter, reduce, flatMap, transducers, functors, monads
-- Examples in JavaScript, TypeScript, Haskell, Elm, Clojure, F#, and Elixir
+- Examples in JavaScript, TypeScript, Python, Haskell, Elm, Clojure, F#, Elixir, Go, and Rust
 
 ### rest-api-best-practices
 
@@ -116,7 +118,7 @@ REST API design guidance for building clean, consistent, and consumer-friendly A
 - Security: JWT, API keys, OAuth 2.0, rate limiting, CORS, and HTTPS enforcement
 - CRUD anti-pattern: why task-based APIs (`POST /orders/{id}/cancel`) are more expressive than raw CRUD
 - HATEOAS, REST architectural constraints, and API-as-a-product thinking
-- Examples in TypeScript (Express, NestJS)
+- Examples in TypeScript (Express, NestJS), Python (FastAPI, DRF), Go (Chi), PHP (Laravel), and Java (Spring Boot)
 
 ## Usage
 
