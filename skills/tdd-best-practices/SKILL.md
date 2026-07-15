@@ -1,6 +1,6 @@
 ---
 name: tdd-best-practices
-description: Test-Driven Development guidance. Use when writing tests before implementation, applying Red-Green-Refactor, testing Value Object contracts, typed domain failures/Results, DDD Aggregates, Domain Events/subscribers, transaction boundaries, Criteria/query adapters, repository contracts or persistence adapters, choosing between test doubles, deciding test granularity, practicing outside-in or inside-out TDD, reviewing test suite quality, or diagnosing brittle tests.
+description: Test-Driven Development guidance. Use when writing tests before implementation, applying Red-Green-Refactor, testing Value Object contracts, typed domain failures/Results, DDD Aggregates, Domain Events/subscribers, transaction or cache boundaries, Criteria/query adapters, repository contracts or persistence adapters, choosing between test doubles, deciding test granularity, practicing outside-in or inside-out TDD, reviewing test suite quality, or diagnosing brittle tests.
 license: MIT
 metadata:
   author: luckys
@@ -96,6 +96,7 @@ Treat difficulty writing a test first as a design or boundary signal; legacy con
 - Read `references/aggregate-testing.md` for invariant-first Aggregate tests, repository contract and adapter tests, including atomic failures, deterministic Mothers, collection equality, transaction propagation, and concurrency integration tests.
 - Read `references/domain-event-testing.md` for Aggregate event assertions, application handoff, subscriber and real-bus tests, Outbox/Inbox delivery tests, Integration Event contracts, and CDC mapping tests.
 - Read `references/transaction-testing.md` for atomic commit/rollback, connection propagation, concurrency, cleanup, commit ambiguity, decorators, and side-effect boundary tests.
+- Read `references/cache-testing.md` for cache hit/miss contracts, invalidation, TTL, key isolation, corruption, failure degradation, stampede, and HTTP privacy tests.
 - Read `references/domain-error-testing.md` for typed failure assertions, Result short-circuit tests, exhaustive boundary mappings, public redaction, unknown 500 behavior, Effect execution, and error-test-double caveats.
 - Read `references/criteria-testing.md` for parser/AST tests, shared query semantics, real-adapter operator/security tests, pagination traversal, joins, nested boolean filters, and false-confidence warnings.
 
@@ -124,3 +125,4 @@ This skill is synthesized from:
 - [CodelyTV Domain Modeling Errors course](https://github.com/CodelyTV/domain_modeling-errors-course) (including Result, Effect, stale-contract, and mock counterexamples)
 - [CodelyTV Criteria Pattern course](https://github.com/CodelyTV/design_patterns-criteria-course) (including converter, pagination, injection, and test-coverage counterexamples)
 - [CodelyTV Infrastructure Design Transactions course](https://github.com/CodelyTV/infrastructure_design-transactions-course) (including transaction-scope, shared-connection, deferred-side-effect, and coverage counterexamples)
+- [CodelyTV Infrastructure Design Cache course](https://github.com/CodelyTV/infrastructure_design-cache-course) (including key-collision, invalidation, ETag, destructive-test, and self-asserting-double counterexamples)

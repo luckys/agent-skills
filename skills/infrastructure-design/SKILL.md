@@ -24,7 +24,7 @@ Practical infrastructure patterns for layered (hexagonal/DDD) applications. The 
 |---|---|---|
 | Publishing domain events reliably without losing them | DB-backed Event Bus / Outbox | `references/event-bus.md` |
 | Ensuring multiple writes succeed or fail together | Transactions in use case | `references/transactions.md` |
-| Slow read queries on frequently accessed data | Cache-Aside at repository | `references/cache.md` |
+| Repeated measured reads with acceptable staleness | Cache-Aside at the narrowest reusable layer | `references/cache.md` |
 | Complex JOIN queries repeated across the codebase | Database View / Materialized View | `references/database-views.md` |
 | Read model needs pre-computed aggregates | Materialized view with triggers | `references/database-views.md` |
 | Events must survive application crashes | Outbox pattern | `references/event-bus.md` |
@@ -36,7 +36,7 @@ Practical infrastructure patterns for layered (hexagonal/DDD) applications. The 
 
 - **Core contracts first** — define required ports in the domain or application core; implement adapters in infrastructure. DDD owns Repository semantics; infrastructure owns mapping, transactions, locking, caching, and Outbox mechanics.
 - **Transactions wrap units of work** — application code or a typed decorator owns the business boundary; repositories join the scoped transaction and do not commit it independently.
-- **Cache is a patch** — add it only when you have a measured performance problem. Remove it when the root cause is fixed.
+- **Cache is a derived copy** — add it only for a measured problem, with explicit freshness, invalidation, privacy, failure, and removal policies.
 - **Views abstract queries, not business logic** — a view is a saved SELECT, not a substitute for a domain model.
 - **Durability is designed, not implied** — asynchronous delivery is reliable only with durable handoff, idempotent consumers, retries, dead-letter handling, and observability.
 
@@ -52,5 +52,5 @@ Practical infrastructure patterns for layered (hexagonal/DDD) applications. The 
 
 - `references/event-bus.md` — synchronous failure policy, transactional Outbox, relay claiming, fan-out, Inbox/idempotency, ordering, retries, dead-letter/replay, brokers, and CDC
 - `references/transactions.md` — transaction placement, Aggregate consistency boundaries, optimistic concurrency, decorator pattern, unit of work
-- `references/cache.md` — cache-aside, write-through, write-behind, where to cache in DDD layers
+- `references/cache.md` — cache placement, keys, invalidation, failures, stampede, capacity, Redis operations, and observability
 - `references/database-views.md` — views vs materialized views, triggers for MySQL materialized views, CQRS read side
