@@ -1,6 +1,6 @@
 # Event Delivery Infrastructure
 
-Sources: CodelyTV event-bus courses, [infrastructure_design-eventbus-db-course](https://github.com/CodelyTV/infrastructure_design-eventbus-db-course), [domain_modeling-domain_events-course](https://github.com/CodelyTV/domain_modeling-domain_events-course), and [ddd_problems-domain_events_errors_handling-course](https://github.com/CodelyTV/ddd_problems-domain_events_errors_handling-course), corrected for transaction, retry, ordering, and consumer semantics.
+Sources: CodelyTV event-bus courses, [infrastructure_design-eventbus-db-course](https://github.com/CodelyTV/infrastructure_design-eventbus-db-course), [infrastructure_design-eventbus-rabbitmq-course](https://github.com/CodelyTV/infrastructure_design-eventbus-rabbitmq-course), [domain_modeling-domain_events-course](https://github.com/CodelyTV/domain_modeling-domain_events-course), and [ddd_problems-domain_events_errors_handling-course](https://github.com/CodelyTV/ddd_problems-domain_events_errors_handling-course), corrected for transaction, retry, ordering, and consumer semantics.
 
 This reference owns transport and reliability. The domain owns which facts occurred; the application translates public contracts; infrastructure delivers them.
 
@@ -145,6 +145,12 @@ Use a broker for lower latency, service fan-out, partitioning, and operational t
 
 One durable queue per subscriber is a useful default. Bind multiple event types to it when one subscriber intentionally handles them.
 
+For RabbitMQ, durability is a conjunction: declare durable exchanges and queues, publish persistent messages, and choose a replicated queue type such as quorum queues when node-loss tolerance requires it. Durable topology alone does not make transient messages survive broker restart. Publisher confirms report broker acceptance, not successful routing or consumer completion; combine confirms with `mandatory` returns or a monitored alternate exchange for critical messages.
+
+Treat topology as versioned infrastructure. Assert exchange types, queues, bindings, retry TTL/DLX routes, queue type, and compatible arguments idempotently during a controlled startup or migration step. Redeclaring an existing queue with incompatible arguments closes the channel with `PRECONDITION_FAILED`; prefer operator policies for settings that must change independently. Stable subscriber/queue IDs must not derive solely from refactorable class names.
+
+Use one long-lived connection per process and separate channels by role: topology, confirmed publishing, and consumption, often one consumer channel per worker/group. Set explicit prefetch from handler latency, memory, downstream capacity, and fairness; `prefetch(1)` bounds in-flight work but does not create global ordering. Consumer adapters must observe every asynchronous handler promise and withhold ack until processing or confirmed retry/dead-letter publication settles.
+
 A database-backed queue also needs per-delivery state. Selecting the oldest rows in a loop without claiming and marking/deleting them replays the same batch forever; clearing the ORM session changes no queue state. Define pending, claimed, completed, retry, and dead-letter transitions, including lease recovery after worker crashes.
 
 ## Backlog and Consumer Lifecycle
@@ -154,6 +160,10 @@ Bound batch size and concurrency according to downstream capacity. Back off empt
 For HTTP/serverless pollers, fail closed when scheduler credentials are absent, use an authenticated mutation endpoint, validate subscriber scope, cap batch size server-side, prevent overlapping invocations where required, and leave enough execution budget to release or expire claims safely. For continuous workers, use adaptive idle backoff and treat `LISTEN/NOTIFY` only as a wake-up hint, not as the durable source of truth.
 
 High-churn database queues also need retention, bounded cleanup, and index maintenance. Build partial composite indexes around the real eligibility/filter/order query, verify them with production-shaped `EXPLAIN (ANALYZE, BUFFERS)`, and monitor vacuum lag and table/index bloat rather than adding isolated indexes by intuition.
+
+Handle broker connection/channel `error`, `close`, and consumer cancellation as lifecycle transitions rather than throwing from asynchronous callbacks. Mark publishers unready, reconnect with bounded backoff and jitter, recreate role-specific channels, reapply QoS, redeclare compatible topology, and restore consumers. Any publication without an observed confirm has an ambiguous outcome and must retain the same message ID on retry.
+
+On shutdown, cancel consumers first, stop new deliveries, await in-flight handlers and confirmed replacement publications within a deadline, then close channels and the connection. If the deadline expires, leave unfinished deliveries unacknowledged for broker redelivery. Monitor confirms, returns, redeliveries, unacked count, connection churn, retry age, DLQ depth, and Outbox lag.
 
 ## Broker-First Fallback Is Not an Outbox
 
@@ -199,3 +209,4 @@ Prefer an application Outbox once the writer can change.
 - Is ordering/deduplication state durable and committed with the projection?
 - Does CDC translate row changes rather than pretending they are Domain Events?
 - Are routing reconciliation and poller authentication safe during deployment and misconfiguration?
+- Are topology durability, message persistence, routing returns, channels, prefetch, recovery, and shutdown explicit?
