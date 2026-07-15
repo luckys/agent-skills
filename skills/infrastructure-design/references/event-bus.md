@@ -1,6 +1,6 @@
 # Event Delivery Infrastructure
 
-Sources: CodelyTV event-bus courses, [domain_modeling-domain_events-course](https://github.com/CodelyTV/domain_modeling-domain_events-course), and [ddd_problems-domain_events_errors_handling-course](https://github.com/CodelyTV/ddd_problems-domain_events_errors_handling-course), corrected for transaction, retry, ordering, and consumer semantics.
+Sources: CodelyTV event-bus courses, [infrastructure_design-eventbus-db-course](https://github.com/CodelyTV/infrastructure_design-eventbus-db-course), [domain_modeling-domain_events-course](https://github.com/CodelyTV/domain_modeling-domain_events-course), and [ddd_problems-domain_events_errors_handling-course](https://github.com/CodelyTV/ddd_problems-domain_events_errors_handling-course), corrected for transaction, retry, ordering, and consumer semantics.
 
 This reference owns transport and reliability. The domain owns which facts occurred; the application translates public contracts; infrastructure delivers them.
 
@@ -74,6 +74,8 @@ Relays are at-least-once. Claim rows with database-supported locking/leases (`FO
 
 A crash after broker publish but before marking completion causes redelivery. Preserve message identity and require consumer idempotency. Do not generate a new ID from the payload on each attempt.
 
+Keep claim transactions short. Running arbitrary handlers or remote I/O while a batch remains locked holds connections, amplifies rollback, and can replay every earlier side effect if a later row aborts the transaction. Prefer a committed lease (`claimed_by`, `claimed_until`) followed by conditional acknowledgement, or process one delivery in a short transaction only when its local effect can join that same transaction. `SKIP LOCKED` prevents workers from claiming the same currently locked row; it does not prevent sequential redelivery after rollback, lease expiry, or an ambiguous commit.
+
 ## Fan-Out and Delivery State
 
 Independent subscribers need independent delivery state. Use one broker queue per subscriber, a per-subscriber Inbox/cursor, or an Outbox delivery table keyed by `(message_id, subscriber_id)`.
@@ -81,6 +83,15 @@ Independent subscribers need independent delivery state. Use one broker queue pe
 One queue row deleted by the first handler cannot represent fan-out. A `Map<eventName, subscriber>` also loses additional subscribers; use a collection per event type.
 
 Unknown event types must have an explicit policy: quarantine/dead-letter, retain for later deployment, or intentionally ignore with metrics. Never leave them stuck silently.
+
+Choose the persistence model deliberately:
+
+- a **fan-out queue** stores one pending delivery per `(message_id, subscriber_id)` and usually deletes or archives it after acknowledgement; it is simple to claim but does not provide replay offsets or successful-delivery history;
+- an **append-only log** retains messages and stores a cursor per subscriber and partition; it supports replay, lag, and late subscribers but requires offset and partition-ordering semantics.
+
+Do not describe a pending-row queue as an offset-based log. Decide how new subscribers receive history and how removed subscribers' pending work is retained, reassigned, archived, or discarded.
+
+When publishers and subscribers deploy separately, a durable routing registry can materialize fan-out without loading every subscriber into the publisher. Give one component ownership of atomic reconciliation; remove stale routes as well as adding new ones, use stable subscriber IDs, and define behavior during rolling deployments. An insert-only synchronization script leaves renamed or removed subscribers receiving permanent poison deliveries.
 
 ## Inbox and Idempotency
 
@@ -140,6 +151,10 @@ A database-backed queue also needs per-delivery state. Selecting the oldest rows
 
 Bound batch size and concurrency according to downstream capacity. Back off empty polling, expose queue depth and oldest-message age, and alert on lag rather than only failures. A poison message must not block every later partition indefinitely; quarantine it according to the ordering policy. Define retention/archival, graceful shutdown that stops new claims and finishes or releases leases, and overload behavior before production traffic.
 
+For HTTP/serverless pollers, fail closed when scheduler credentials are absent, use an authenticated mutation endpoint, validate subscriber scope, cap batch size server-side, prevent overlapping invocations where required, and leave enough execution budget to release or expire claims safely. For continuous workers, use adaptive idle backoff and treat `LISTEN/NOTIFY` only as a wake-up hint, not as the durable source of truth.
+
+High-churn database queues also need retention, bounded cleanup, and index maintenance. Build partial composite indexes around the real eligibility/filter/order query, verify them with production-shaped `EXPLAIN (ANALYZE, BUFFERS)`, and monitor vacuum lag and table/index bloat rather than adding isolated indexes by intuition.
+
 ## Broker-First Fallback Is Not an Outbox
 
 Do not publish to a broker and write to a database only when the client throws. A timeout has an ambiguous outcome, a send without confirms may not be durable, and an accepted but unroutable message may still disappear. The fallback is also not atomic with the Aggregate write and can create duplicates or gaps. Write the message to an Outbox in the Aggregate transaction, then relay it; reconcile ambiguous broker outcomes with the same stable message ID.
@@ -175,6 +190,7 @@ Prefer an application Outbox once the writer can change.
 - Do state and Outbox append share one real transaction context?
 - Is message identity stable across retries?
 - Does each subscriber have independent delivery state?
+- Is this explicitly a fan-out queue or an append-only log with offsets?
 - Are consumer effect and Inbox atomic?
 - Is ordering scope defined with a source sequence/version?
 - Are retryable and permanent failures classified?
@@ -182,3 +198,4 @@ Prefer an application Outbox once the writer can change.
 - Is retry republishing confirmed before the original delivery is acknowledged?
 - Is ordering/deduplication state durable and committed with the projection?
 - Does CDC translate row changes rather than pretending they are Domain Events?
+- Are routing reconciliation and poller authentication safe during deployment and misconfiguration?

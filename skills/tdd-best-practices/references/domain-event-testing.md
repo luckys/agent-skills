@@ -1,6 +1,6 @@
 # Testing Domain Events
 
-Sources: lessons and counterexamples from [CodelyTV/domain_modeling-domain_events-course](https://github.com/CodelyTV/domain_modeling-domain_events-course) and [CodelyTV/ddd_problems-domain_events_errors_handling-course](https://github.com/CodelyTV/ddd_problems-domain_events_errors_handling-course), corrected for behavior-focused and failure-focused tests.
+Sources: lessons and counterexamples from [CodelyTV/domain_modeling-domain_events-course](https://github.com/CodelyTV/domain_modeling-domain_events-course), [CodelyTV/ddd_problems-domain_events_errors_handling-course](https://github.com/CodelyTV/ddd_problems-domain_events_errors_handling-course), and [CodelyTV/infrastructure_design-eventbus-db-course](https://github.com/CodelyTV/infrastructure_design-eventbus-db-course), corrected for behavior-focused and failure-focused tests.
 
 ## Aggregate Event Tests
 
@@ -67,6 +67,10 @@ Use real disposable infrastructure to prove:
 
 At-least-once delivery requires duplicate-delivery tests. A single happy-path consumer test is insufficient.
 
+Inspect the actual persisted or encoded envelope in adapter contract tests: assert the exact subscriber set, stable ID, type and version, metadata, timestamps under a controlled clock, and payload. Queue deletion alone does not prove a handler ran, `length > 0` does not prove complete fan-out, and a mocked transaction that never executes its callback does not prove persistence.
+
+Exercise the crash matrix with independent connections or worker processes: before claim commit, during the handler, after the side effect but before acknowledgement, after acknowledgement commit with a lost response, and after an ambiguous publisher commit. Also prove concurrent workers do not overlap active claims, expired claims recover after restart, subscriber failures remain isolated, delayed retries are ineligible before `next_attempt_at`, and malformed/unknown oldest rows cannot starve valid work.
+
 ## Integration Event Contract Tests
 
 Test translation separately from transport. Assert stable type, schema version, envelope metadata, redaction, and payload. Keep compatibility fixtures for supported historical versions.
@@ -79,4 +83,4 @@ CDC mapping needs contract tests for each table/action pair, old/new row shape, 
 
 The domain-modeling course contains many copied tests and self-asserting doubles. Several positive tests can remain green if save, publish, or send is removed; the concrete Event Bus and external-event filter have no direct tests. Treat its fixtures as modeling examples, not evidence of TDD discipline.
 
-The error-handling course presents progressive failure snapshots, not production-ready queue infrastructure. Do not copy its process-local timestamp ordering guard, mutable retry headers, republish-without-confirm flow, or SQL consumer that repeatedly selects rows without recording completion. Tests should kill/restart workers and fail each boundary between effect, Inbox, retry publish, acknowledgement, and dead-letter transition.
+The error-handling and database event-bus courses present progressive snapshots, not production-ready queue infrastructure. Do not copy process-local ordering guards, mutable retry headers, republish-without-confirm flows, aggregate-write/event-insert dual writes, long transactions around handler I/O, immediate unclassified retries, or unknown rows retained forever. Tests should kill/restart workers and fail each boundary between effect, Inbox, retry publish, acknowledgement, and dead-letter transition.
