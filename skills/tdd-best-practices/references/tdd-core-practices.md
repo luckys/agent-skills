@@ -130,6 +130,17 @@ THEN the total price reflects both items plus tax
 - Use `describe`/`context`/`it` or equivalent to group by scenario.
 - Avoid asserting on internal state — assert on observable behavior.
 
+### Preserve refactorability
+
+- Drive public operations; do not spy on private helpers.
+- Stub boundary responses rather than internal intermediate methods.
+- Assert final output, state, error, or externally relevant interaction.
+- A rename, extraction, inline, or reordering that preserves behavior should not require test changes.
+
+### Reproduce bugs where they manifest
+
+Write the regression test at the boundary that exposes the defect. A mock asserting `save(updatedEntity)` cannot prove that the real repository replaces an existing record or that a subsequent read observes the update. Use a faithful fake, repository contract test, or adapter integration test when persistence semantics are part of the bug.
+
 ---
 
 ## Test Coverage
@@ -158,3 +169,4 @@ Coverage is a negative indicator, not a positive one:
 - Tim Ottinger & Jeff Langr, "Unit Tests Are FIRST" (Pragmatic Bookshelf)
 - Martin Fowler, "Test Pyramid" (martinfowler.com)
 - Robert C. Martin (Uncle Bob), "The Three Laws of TDD"
+- [CodelyTV Four Rules of Simple Design course](https://github.com/CodelyTV/four_rules_of_simple_design-course) (private-method coupling and false-confidence repository mock examples)

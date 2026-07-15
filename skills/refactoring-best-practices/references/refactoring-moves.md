@@ -96,6 +96,30 @@ Use when:
 
 Note: define the interface by what clients need, not by what the class exposes.
 
+Do not extract a mirror interface merely because a class exists. Keep a single-implementation interface when it establishes a real port, dependency direction, public contract, or substitution boundary; implementation count alone is not decisive. Remove interfaces that only repeat a record, factory, or use-case surface without isolating change.
+
+## Remove Speculative Elements
+
+Use when:
+- an enum contains states unsupported by current behavior
+- a field has no rule, output, or current use case
+- a repository predicts many query/count/delete variants
+- an abstraction exists only for a hypothetical future
+
+Safe sequence:
+1. Search production, tests, serialization, reflection, DI, persistence mappings, and external consumers.
+2. Protect any current observable contract.
+3. Delete one element and run feedback.
+4. Restore it only if a concrete consumer or boundary proves its job.
+
+YAGNI does not authorize breaking public compatibility or removing deliberate architecture boundaries.
+
+## Consolidate Duplicated Knowledge
+
+Use when the same business decision must remain synchronized across multiple expressions. Extract a named policy or move the rule to its canonical owner.
+
+Do not consolidate merely because code has the same shape. Invoice and order calculations may share one pricing policy, while email, SMS, and push workflows can evolve independently despite structural similarity. Prefer composition around a shared decision over a generic base class that couples unrelated concepts.
+
 ## Replace Temp with Query
 
 Use when:

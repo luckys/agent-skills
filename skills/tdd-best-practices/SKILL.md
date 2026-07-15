@@ -129,3 +129,4 @@ This skill is synthesized from:
 - [CodelyTV Criteria Pattern course](https://github.com/CodelyTV/design_patterns-criteria-course) (including converter, pagination, injection, and test-coverage counterexamples)
 - [CodelyTV Infrastructure Design Transactions course](https://github.com/CodelyTV/infrastructure_design-transactions-course) (including transaction-scope, shared-connection, deferred-side-effect, and coverage counterexamples)
 - [CodelyTV Infrastructure Design Cache course](https://github.com/CodelyTV/infrastructure_design-cache-course) (including key-collision, invalidation, ETag, destructive-test, and self-asserting-double counterexamples)
+- [CodelyTV Four Rules of Simple Design course](https://github.com/CodelyTV/four_rules_of_simple_design-course) (including private-method coupling and passing repository-mock counterexamples)

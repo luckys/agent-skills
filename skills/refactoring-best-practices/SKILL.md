@@ -110,3 +110,4 @@ This skill is synthesized from ideas emphasized in:
 - [CodelyTV Repository Pattern course](https://github.com/CodelyTV/repository_pattern-course) (incremental direct-SQL-to-port refactoring)
 - [CodelyTV Domain Events course](https://github.com/CodelyTV/domain_modeling-domain_events-course) (legacy event seams and CDC counterexamples)
 - [CodelyTV Domain Modeling Errors course](https://github.com/CodelyTV/domain_modeling-errors-course) (incremental exception-to-Result and boundary-contract lessons)
+- [CodelyTV Four Rules of Simple Design course](https://github.com/CodelyTV/four_rules_of_simple_design-course) (behavior-preserving tests, speculative-element deletion, and duplication counterexamples)

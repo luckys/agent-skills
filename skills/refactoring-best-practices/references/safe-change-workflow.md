@@ -54,6 +54,8 @@ After each meaningful step ask:
 - Did the public API get simpler or more honest?
 - Did I introduce accidental complexity?
 
+Keep tests attached to observable behavior rather than private helpers. A private-method spy turns harmless rename, extract, inline, or reordering moves into test failures even when the contract remains unchanged.
+
 ## 7. Sensing and Separation
 
 When breaking a dependency in legacy code, name which of two distinct problems you are solving:
@@ -88,3 +90,9 @@ Feathers' algorithm from *Working Effectively with Legacy Code* structures every
 5. **Make changes and refactor** — with test coverage in place, make the functional change and then improve the surrounding structure. This is the only step where behavior is intentionally altered.
 
 Steps 1 through 4 are setup. No functional change happens until step 5. The goal of each programming episode is to leave both new functionality and new tests behind, so that tested areas of the codebase grow over time.
+
+## 10. Reproduce Defects At Their Observable Boundary
+
+Before fixing a defect, add a failing test where the incorrect result can actually be observed. Assert final state or output, not only that a collaborator was called.
+
+An interaction test can verify `repository.save(updatedEntity)` while missing that the real repository refuses to replace an existing record. Start with the use-case plus a faithful fake or adapter contract test that proves a subsequent read returns the update. Add a narrower unit test only if it protects a separate decision.

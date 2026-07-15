@@ -147,3 +147,4 @@ This skill is synthesized from ideas emphasized in:
 - [CodelyTV OOP Good Practices course](https://github.com/CodelyTV/object_oriented_programming-good_practices-course) (including progressive and overwritten educational counterexamples)
 - [CodelyTV Aggregates course](https://github.com/CodelyTV/aggregates-course)
 - [CodelyTV Value Objects course](https://github.com/CodelyTV/value_objects-course)
+- [CodelyTV Four Rules of Simple Design course](https://github.com/CodelyTV/four_rules_of_simple_design-course) (including intentional naming, YAGNI, interface, duplication, and testing counterexamples)
