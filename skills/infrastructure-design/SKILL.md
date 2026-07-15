@@ -9,13 +9,13 @@ metadata:
 
 # Infrastructure Design
 
-Practical infrastructure patterns for layered (hexagonal/DDD) applications. Each pattern lives in the infrastructure layer but has clear contracts defined in the domain.
+Practical infrastructure patterns for layered (hexagonal/DDD) applications. The domain defines business consistency requirements, the application defines unit-of-work boundaries and capability ports, and infrastructure implements transaction and delivery mechanics.
 
 ## Workflow
 
 1. **Identify the concern** — is this about event delivery, data consistency, read performance, or query simplification?
 2. **Choose the right reference** — load the relevant file from `references/`.
-3. **Apply at the right layer** — domain defines the interface, infrastructure provides the implementation.
+3. **Apply at the right layer** — domain owns business meaning, application owns orchestration contracts, and infrastructure provides technical adapters.
 4. **Validate the tradeoff** — every infrastructure decision trades something (complexity, consistency, latency). Make the tradeoff explicit.
 
 ## Quick Decision Map
@@ -35,7 +35,7 @@ Practical infrastructure patterns for layered (hexagonal/DDD) applications. Each
 ## Core Principles
 
 - **Core contracts first** — define required ports in the domain or application core; implement adapters in infrastructure. DDD owns Repository semantics; infrastructure owns mapping, transactions, locking, caching, and Outbox mechanics.
-- **Transactions wrap use cases, not repositories** — repositories stay unaware of transactions; the use case or a decorator manages the boundary.
+- **Transactions wrap units of work** — application code or a typed decorator owns the business boundary; repositories join the scoped transaction and do not commit it independently.
 - **Cache is a patch** — add it only when you have a measured performance problem. Remove it when the root cause is fixed.
 - **Views abstract queries, not business logic** — a view is a saved SELECT, not a substitute for a domain model.
 - **Durability is designed, not implied** — asynchronous delivery is reliable only with durable handoff, idempotent consumers, retries, dead-letter handling, and observability.
@@ -45,6 +45,8 @@ Practical infrastructure patterns for layered (hexagonal/DDD) applications. Each
 - `ddd-best-practices` — bounded context design and aggregate boundaries
 - `design-patterns-best-practices` — Decorator for transparent transaction/cache wrapping
 - `oop-best-practices` — domain interface design and dependency inversion
+- `tdd-best-practices` — real-database transaction, rollback, concurrency, and delivery tests
+- `refactoring-best-practices` — incremental migration of controller/repository transaction boundaries
 
 ## References
 

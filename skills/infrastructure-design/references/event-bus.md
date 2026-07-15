@@ -66,6 +66,8 @@ An Event Bus that opens a separate transaction around only its inserts does not 
 
 Do not irreversibly lose pulled events before durable handoff. The Unit of Work must append them before commit and retain/recover them on rollback, or inspect without draining until the transaction succeeds.
 
+A singleton deferred in-memory bus is not an Outbox. Buffering events and dispatching them just before commit can mix concurrent requests, expose effects for a transaction that later fails, and lose everything on process crash. Dispatching after commit avoids rolled-back publication but recreates the dual-write crash gap. Same-process handlers may join only when all their writes use the same scoped database transaction; external effects require durable handoff.
+
 ## Relay Claiming and Completion
 
 Relays are at-least-once. Claim rows with database-supported locking/leases (`FOR UPDATE SKIP LOCKED`, claim token plus expiry, etc.), publish outside long locks where appropriate, and mark completion conditionally.

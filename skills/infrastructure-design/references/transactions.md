@@ -1,21 +1,25 @@
 # Transactions
 
-Source: CodelyTV/infrastructure_design-transactions-course
+Source: [CodelyTV/infrastructure_design-transactions-course](https://github.com/CodelyTV/infrastructure_design-transactions-course), corrected for connection scope, side effects, cleanup, and concurrency.
 
-## Transaction in Repository (Anti-Pattern)
+## Core Guarantee
 
-**Intent:** Wrapping individual repository calls in transactions — shown here as the wrong approach to avoid.
+A transaction is atomic only when every participating database operation uses the same transaction-scoped connection. Opening a transaction on one connection while repositories borrow others from a pool provides no shared commit or rollback. Pass the scoped handle explicitly or bind it to request/job-local async context; never store the active connection in a singleton shared by concurrent requests.
 
-**How it works:** Each `save()` or `find()` call opens and commits its own transaction. Multiple repository calls in one use case run in separate transactions, making partial failure possible.
+## Repository-Owned Business Transaction (Anti-Pattern)
+
+**Intent:** Avoid letting each repository independently own and commit the business transaction.
+
+**How it fails:** A repository `save()` opens and commits before the use case finishes. Multiple repository calls then run in separate transactions, making partial failure possible.
 
 **When to use:**
-- Never for multi-step writes (each step can commit independently, leaving data in an inconsistent state)
-- Acceptable only for truly single-operation use cases where exactly one DB write happens
+- Never let an adapter commit independently when it must compose into a larger unit of work
+- An adapter may use an internal transaction to persist one Aggregate across tables only when no outer transaction exists and the API still supports propagation/composition
 
 **When NOT to use:**
 - Any use case that calls `repositoryA.save()` AND `repositoryB.save()` — the two saves are not atomic
 
-**Practical heuristic:** If your use case calls more than one repository write method, the transaction does not belong inside the repository.
+**Practical heuristic:** The anti-pattern is independent commit ownership, not every internal adapter transaction. If the use case coordinates atomic work, it owns the boundary and repositories join it.
 
 ---
 
@@ -23,7 +27,7 @@ Source: CodelyTV/infrastructure_design-transactions-course
 
 **Intent:** Wrap the entire unit of work for a use case in a single transaction at the application service level.
 
-**How it works:** The use case opens a transaction before doing any work, executes all repository operations within that transaction, and commits (or rolls back on error) at the end. Repositories receive the active transaction context either via constructor injection or a thread-local/async-context store.
+**How it works:** The use case opens a transaction before doing any work, executes all repository operations within that transaction, and commits (or rolls back on error) at the end. Repositories receive the active transaction context explicitly or through a request/job-local async-context store.
 
 **When to use:**
 - Use cases that persist one Aggregate through multiple statements or tables
@@ -31,7 +35,7 @@ Source: CodelyTV/infrastructure_design-transactions-course
 - Domain events that must be saved atomically with the aggregate (see event-bus.md Outbox pattern)
 
 **When NOT to use:**
-- Read-only use cases (no transaction needed)
+- Simple reads that accept the database's default statement-level consistency
 - A single atomic database statement that needs no stronger isolation guarantee
 - Use cases that span multiple bounded contexts or remote services (use sagas / process managers instead)
 - Very long-running operations (holding a DB transaction for seconds causes lock contention)
@@ -52,12 +56,11 @@ export class InlineTransactionalPostPublisher {
   async publish(id: string, userId: string, content: string): Promise<void> {
     const post = Post.publish(id, userId, content, this.clock);
     let handedOff: readonly DomainEvent[] = [];
-    await this.transactionManager.run(async () => {
+    await this.transactionManager.run(async (tx) => {
       handedOff = post.pendingDomainEvents(); // non-destructive, stable event IDs
       const messages = toIntegrationMessages(handedOff);
-      await this.repository.save(post);
-      // The Outbox adapter must use this same transaction/connection.
-      await this.outbox.append(messages);
+      await this.repository.with(tx).save(post);
+      await this.outbox.with(tx).append(messages);
     });
     post.clearDomainEvents(handedOff); // clear only after commit
   }
@@ -115,106 +118,39 @@ export class TransactionalPostPublisher implements PostPublisherInterface {
 - When every endpoint in a group always needs a transaction
 
 **When NOT to use:**
-- Read-only GET endpoints (transaction is wasteful)
+- Simple GET endpoints that need no multi-query snapshot, explicit lock, or stronger isolation
 - When only some endpoints in a group need transactions
-- When the entry point is a message consumer that already handles idempotency separately
+- When different transports calling the same use case would receive different transaction semantics
 
-**Practical heuristic:** Entry-point transactions are convenient but coarse. Prefer use-case-level transactions — they make the boundary explicit and testable.
+**Practical heuristic:** Entry-point transactions are convenient but coarse. If a controller coordinates a business operation, extract an application command handler/orchestrator and place the boundary there. A message consumer commonly needs a transaction precisely to commit its Inbox and local effect atomically; transport-level idempotency does not replace that transaction.
 
 ---
 
-## Transaction Decorator — Proxy-Based Generic Implementation
+## Generic Proxy Decorators
 
-**Intent:** Apply transaction semantics to any use case automatically using a JavaScript `Proxy`, without writing a decorator class for each use case.
+A generic JavaScript `Proxy` that wraps every function is usually too implicit: it also transacts read-only/helpers, erases useful method types, hides isolation requirements, and can start a nested transaction accidentally. Prefer an explicit typed decorator per use-case contract or framework metadata that selects named methods. Register it at the composition root and test that only intended methods are wrapped.
 
-**How it works:** `TransactionalDecorator.decorate(useCase, connection)` wraps every method on the target object. Before the method runs, it calls `connection.beginTransaction()`. On success it calls `connection.commit()`. On any exception it calls `connection.rollback()` and re-throws. The use case code has zero transaction awareness.
+Nested calls need a declared propagation policy: join the existing transaction, create a savepoint, or reject nesting. Calling `beginTransaction()` again on one mutable connection is not a policy. The outermost owner normally commits; an inner participant must not independently commit or release the shared connection.
 
-**When to use:**
-- When you have many use cases that all need the same transaction boundary
-- In DI containers where you can decorate at registration time (e.g., `diod`, NestJS providers)
-- When you want to enforce "every use case = one transaction" as a container-level convention
+## Connection Lifecycle and Failure Semantics
 
-**When NOT to use:**
-- When the use case has read-only methods that should not open transactions
-- When you need different isolation levels per method
-- TypeScript `Proxy` bypasses the type system — add `// @ts-ignore` carefully and test thoroughly
+Acquire one connection per transaction and release it in `finally`, after commit or rollback attempts. Clear request-local state even when cleanup fails. Do not retain the connection after commit, rollback, or pool release.
 
-**Practical heuristic:** Use the Proxy decorator for cross-cutting transaction enforcement at the composition root. If only one or two use cases need transactions, write explicit decorators instead — the Proxy approach pays off at scale (5+ use cases).
+Track whether begin succeeded; do not blindly rollback a transaction that never started. Preserve the primary application error if rollback also fails, while recording the rollback failure for operators. A commit failure has an uncertain outcome: classify it as ambiguous and non-retryable by default, then reconcile. Retry only when effective idempotency or the database/driver contract makes replay demonstrably safe.
 
-**Example — TransactionalDecorator.ts (from CodelyTV/infrastructure_design-transactions-course):**
-```typescript
-import { DatabaseConnection } from "../domain/DatabaseConnection";
+Never interpolate values or identifiers into SQL merely because a transaction exists. Parameterize values and allow-list dynamic identifiers; atomic SQL injection is still SQL injection.
 
-export class TransactionalDecorator {
-  static decorate<T>(decorated: T, connection: DatabaseConnection): T {
-    // @ts-ignore
-    return new Proxy(decorated, {
-      get: (target, propKey) => {
-        // @ts-ignore
-        const originalMethod = target[propKey];
-        if (typeof originalMethod === "function") {
-          return async (...args: any[]) => {
-            try {
-              await connection.beginTransaction();
-              const result = await originalMethod.apply(target, args);
-              await connection.commit();
-              return result;
-            } catch (error) {
-              await connection.rollback();
-              throw error;
-            }
-          };
-        }
-        return originalMethod;
-      },
-    });
-  }
-}
-```
+## Side Effects
 
-**Example — DatabaseConnection interface and MariaDB implementation:**
-```typescript
-// DatabaseConnection.ts (domain interface — no ORM dependency)
-export abstract class DatabaseConnection {
-  abstract searchOne<T>(query: string): Promise<T | null>;
-  abstract execute(query: string): Promise<void>;
-  abstract beginTransaction(): Promise<void>;
-  abstract commit(): Promise<void>;
-  abstract rollback(): Promise<void>;
-}
+Database rollback cannot undo email, broker publication, HTTP calls, filesystem writes, or another database. Do not execute irreversible side effects inside a local transaction and call the result atomic. Persist an Outbox/intent in the same transaction, commit, and process it later. If a synchronous in-process reaction performs only writes through the same scoped connection, it may participate; otherwise treat it as an external effect.
 
-// MariaDBConnection.ts (infrastructure — wraps mariadb pool)
-export class MariaDBConnection extends DatabaseConnection {
-  private poolInstance: Pool | null = null;
-  private connection: MinimalConnection | null = null;
+A deferred in-memory Event Bus is not an Outbox. Its buffer can leak between concurrent requests when singleton-scoped, disappears on process crash, and publishing before commit can expose state that later rolls back. Keep pending events invocation-local and durably hand them off in the transaction.
 
-  async beginTransaction(): Promise<void> {
-    this.connection = await this.pool.getConnection();
-    await this.connection.beginTransaction();
-  }
+## Isolation and Time
 
-  async commit(): Promise<void> {
-    await this.connection?.commit();
-    await this.connection?.end();
-    this.connection = null;
-  }
+Choose isolation from the invariant and anomaly, not a global default. Optimistic version checks prevent lost updates but do not automatically prevent write skew across multiple rows. Use stronger isolation, explicit locks, or a constraint when the invariant requires it. Keep transactions short: do not include user think time, sleeps, slow queries unrelated to the write, or remote I/O.
 
-  async rollback(): Promise<void> {
-    await this.connection?.rollback();
-    await this.connection?.end();
-    this.connection = null;
-  }
-}
-```
-
-**Registration in DI container:**
-```typescript
-// Use at composition root — the use case itself stays clean
-const postPublisher = TransactionalDecorator.decorate(
-  new PostPublisher(clock, repository, eventBus),
-  mariadbConnection,
-);
-```
+Retry deadlocks and serialization failures only around the complete transaction, with bounded backoff, and only when replaying the command is safe. Never retry permanent constraint violations or an ambiguous commit as though no work occurred.
 
 ---
 
@@ -237,17 +173,18 @@ const postPublisher = TransactionalDecorator.decorate(
 
 ---
 
-## Distributed Transactions
+## Cross-Service Workflows
 
-**Intent:** Coordinate writes across multiple services or databases.
+**Intent:** Coordinate work across independently owned services or resources.
 
-**How it works:** True distributed transactions (2PC) require all participants to lock resources simultaneously, which is impractical at scale. The alternative is the Saga pattern: a sequence of local transactions, each with a compensating transaction for rollback.
+**How it works:** Two-phase commit requires compatible participants and carries availability, lock, and operational costs. A common alternative is local transactions plus Outbox and a Saga/process manager, with compensations where business semantics permit them.
 
 **When to use:**
-- Only when data genuinely lives in separate services with no shared DB
+- Use 2PC only in controlled environments where every participant supports it and its failure/availability costs are accepted
+- Use a Saga/process manager when a workflow spans autonomous services
 
 **When NOT to use:**
-- When you can put the data in the same database (the simplest and most reliable solution)
-- As a first choice — always ask "can we share the DB?" before reaching for sagas
+- Do not introduce a shared integration database merely to avoid a distributed workflow
+- Do not describe compensation as rollback: it is a new business action and can also fail
 
-**Practical heuristic:** A distributed transaction is a design smell that often signals the wrong bounded context split. Before implementing a saga, reconsider whether the aggregates belong in the same context.
+**Practical heuristic:** Recheck the consistency boundary and service split first. If autonomy is intentional, preserve ownership and coordinate explicitly rather than coupling services through shared tables.
