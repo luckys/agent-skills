@@ -50,7 +50,7 @@ Practical infrastructure patterns for layered (hexagonal/DDD) applications. The 
 
 ## References
 
-- `references/event-bus.md` — synchronous failure policy, transactional Outbox, relay claiming, fan-out, Inbox/idempotency, ordering, retries, dead-letter/replay, RabbitMQ topology/lifecycle, brokers, and CDC
+- `references/event-bus.md` — synchronous failure policy, transactional Outbox, relay claiming, fan-out, Inbox/idempotency, ordering, retries, dead-letter/replay, RabbitMQ and AWS EventBridge/SQS semantics, brokers, and CDC
 - `references/transactions.md` — transaction placement, Aggregate consistency boundaries, optimistic concurrency, decorator pattern, unit of work
 - `references/cache.md` — cache placement, keys, invalidation, failures, stampede, capacity, Redis operations, and observability
 - `references/database-views.md` — views vs materialized views, trigger-maintained tables, event-driven projections, and workload-based selection

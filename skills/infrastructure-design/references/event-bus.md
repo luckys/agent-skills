@@ -1,6 +1,6 @@
 # Event Delivery Infrastructure
 
-Sources: CodelyTV event-bus courses, [infrastructure_design-eventbus-db-course](https://github.com/CodelyTV/infrastructure_design-eventbus-db-course), [infrastructure_design-eventbus-rabbitmq-course](https://github.com/CodelyTV/infrastructure_design-eventbus-rabbitmq-course), [domain_modeling-domain_events-course](https://github.com/CodelyTV/domain_modeling-domain_events-course), and [ddd_problems-domain_events_errors_handling-course](https://github.com/CodelyTV/ddd_problems-domain_events_errors_handling-course), corrected for transaction, retry, ordering, and consumer semantics.
+Sources: CodelyTV event-bus courses, [infrastructure_design-eventbus-db-course](https://github.com/CodelyTV/infrastructure_design-eventbus-db-course), [infrastructure_design-eventbus-rabbitmq-course](https://github.com/CodelyTV/infrastructure_design-eventbus-rabbitmq-course), [infrastructure_design-eventbus-aws-course](https://github.com/CodelyTV/infrastructure_design-eventbus-aws-course), [domain_modeling-domain_events-course](https://github.com/CodelyTV/domain_modeling-domain_events-course), and [ddd_problems-domain_events_errors_handling-course](https://github.com/CodelyTV/ddd_problems-domain_events_errors_handling-course), corrected for transaction, retry, ordering, and consumer semantics.
 
 This reference owns transport and reliability. The domain owns which facts occurred; the application translates public contracts; infrastructure delivers them.
 
@@ -151,6 +151,20 @@ Treat topology as versioned infrastructure. Assert exchange types, queues, bindi
 
 Use one long-lived connection per process and separate channels by role: topology, confirmed publishing, and consumption, often one consumer channel per worker/group. Set explicit prefetch from handler latency, memory, downstream capacity, and fairness; `prefetch(1)` bounds in-flight work but does not create global ordering. Consumer adapters must observe every asynchronous handler promise and withhold ack until processing or confirmed retry/dead-letter publication settles.
 
+### AWS EventBridge to SQS
+
+Treat `PutEvents` as a per-entry result, not a request-level Boolean. The SDK call may resolve successfully while `FailedEntryCount` and individual `ErrorCode`/`ErrorMessage` values report rejected entries. Mark only successful entries dispatched; retry or retain each failed/ambiguous entry with its original stable ID. Validate payload size before publication and do not call an unversioned serializer a schema registry.
+
+For each EventBridge rule targeting SQS, create a least-privilege queue resource policy allowing `events.amazonaws.com` to call `sqs:SendMessage`, restricted by the expected rule `aws:SourceArn` and account where appropriate. Configure account, region, partition, bus, queue URLs, and ARNs from deployment outputs rather than hard-coded literals. Scope producer, consumer, redrive, KMS, and topology IAM permissions separately; encrypt sensitive payloads and minimize logged event detail.
+
+Separate the failure planes:
+
+- EventBridge target retry policy and target DLQ cover failure to deliver from EventBridge to SQS;
+- SQS visibility timeout, receive count, and redrive policy cover consumer processing failures;
+- an SQS DLQ needs retention, inspection, authorization, alarms, and controlled redrive that preserves message identity.
+
+SQS message deletion is acknowledgement. Delete only after the effect and Inbox transaction commit. Size visibility above normal processing or renew it with bounded `ChangeMessageVisibility` heartbeats; stop renewal on shutdown so unfinished work becomes visible again. Standard queues provide at-least-once best-effort ordering. Use FIFO only when its throughput, deduplication window, `MessageGroupId`, and head-of-line blocking match the business ordering requirement; consumer idempotency remains necessary.
+
 A database-backed queue also needs per-delivery state. Selecting the oldest rows in a loop without claiming and marking/deleting them replays the same batch forever; clearing the ORM session changes no queue state. Define pending, claimed, completed, retry, and dead-letter transitions, including lease recovery after worker crashes.
 
 ## Backlog and Consumer Lifecycle
@@ -210,3 +224,4 @@ Prefer an application Outbox once the writer can change.
 - Does CDC translate row changes rather than pretending they are Domain Events?
 - Are routing reconciliation and poller authentication safe during deployment and misconfiguration?
 - Are topology durability, message persistence, routing returns, channels, prefetch, recovery, and shutdown explicit?
+- For AWS, are per-entry publication results, queue policies, both retry planes, visibility leases, IAM, and real-service validation explicit?
