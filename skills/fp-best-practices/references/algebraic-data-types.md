@@ -168,6 +168,16 @@ let parseAge (raw: string) : Result<int, string> =
 - Operations that interact with external systems (database, HTTP, file system)
 - Business rules that can be violated (`InsufficientFunds`, `ProductOutOfStock`)
 
+### Option vs Either/Result
+
+`Option<T>` communicates only presence or absence. Use it when no reason is needed. If the caller must distinguish `NotFound`, `Forbidden`, or `Unavailable`, use `Either<E, T>`/`Result<T, E>` before that information is discarded.
+
+`Either` and `Result` have equivalent sum-type structure; naming and generic parameter order vary by ecosystem. Prefer the established language/library type over a home-grown implementation. Require exhaustive `match`/`fold`, use `flatMap`/`chain` for dependent computations, and avoid partial `get()`/`getError()` APIs that throw on the wrong branch.
+
+Expected typed failures can coexist with an exception/defect channel for bugs and unexpected infrastructure failures. An effect system models both channels explicitly, but the program must be executed by its runtime; awaiting an Effect value is not execution.
+
+Source lesson: [CodelyTV Domain Modeling Errors course](https://github.com/CodelyTV/domain_modeling-errors-course), generalized from its Optional, Either, Result, fp-ts, Scala, and Effect comparisons.
+
 ## Making Illegal States Unrepresentable
 
 The goal is to design types so that the invalid combinations simply cannot be constructed.

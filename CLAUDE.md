@@ -41,7 +41,7 @@ description: When to invoke this skill — specific task types and contexts.
 | `infrastructure-design` | Event bus, transactions, caching strategies, database views, read model infrastructure |
 | `tdd-best-practices` | Red-Green-Refactor cycle, test doubles (mock/stub/fake), outside-in vs inside-out TDD, BDD, test anti-patterns, test pyramid |
 | `fp-best-practices` | Pure functions, immutability, function composition/pipe, algebraic data types (Maybe, Either), managing side effects, higher-order functions (map/filter/reduce), currying, FP in JS/TS/Haskell/Elm/Clojure/F#/Elixir |
-| `rest-api-best-practices` | REST endpoint design, HTTP method and status code selection, URL naming and versioning, error response format (RFC 7807), pagination, filtering, authentication, rate limiting, CRUD anti-pattern vs task-based APIs |
+| `rest-api-best-practices` | REST endpoint design, HTTP method and status code selection, URL naming and versioning, error response format (RFC 9457), pagination, filtering, authentication, rate limiting, CRUD anti-pattern vs task-based APIs |
 
 ## Adding a New Skill
 

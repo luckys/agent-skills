@@ -1,6 +1,6 @@
 ---
 name: tdd-best-practices
-description: Test-Driven Development guidance. Use when writing tests before implementation, applying Red-Green-Refactor, testing Value Object contracts, DDD Aggregates, Domain Events/subscribers, repository contracts or persistence adapters, choosing between test doubles (mock vs stub vs fake), deciding test granularity (unit vs integration vs acceptance), practicing outside-in or inside-out TDD, reviewing test suite quality, or diagnosing why a test suite is slow, brittle, or hard to maintain.
+description: Test-Driven Development guidance. Use when writing tests before implementation, applying Red-Green-Refactor, testing Value Object contracts, typed domain failures/Results, DDD Aggregates, Domain Events/subscribers, repository contracts or persistence adapters, choosing between test doubles, deciding test granularity, practicing outside-in or inside-out TDD, reviewing test suite quality, or diagnosing brittle tests.
 license: MIT
 metadata:
   author: luckys
@@ -95,6 +95,7 @@ The design is too coupled. A class that is hard to test is a design problem, not
 - Read `references/value-object-testing.md` for semantic equality, invariant boundaries, deep immutability, normalization, optionality, serialization, and property-based Value Object tests.
 - Read `references/aggregate-testing.md` for invariant-first Aggregate tests, repository contract and adapter tests, including atomic failures, deterministic Mothers, collection equality, transaction propagation, and concurrency integration tests.
 - Read `references/domain-event-testing.md` for Aggregate event assertions, application handoff, subscriber and real-bus tests, Outbox/Inbox delivery tests, Integration Event contracts, and CDC mapping tests.
+- Read `references/domain-error-testing.md` for typed failure assertions, Result short-circuit tests, exhaustive boundary mappings, public redaction, unknown 500 behavior, Effect execution, and error-test-double caveats.
 
 ## Related Skills
 
@@ -118,3 +119,4 @@ This skill is synthesized from:
 - [CodelyTV Value Objects course](https://github.com/CodelyTV/value_objects-course) (including testing and TypeScript counterexamples)
 - [CodelyTV Repository Pattern course](https://github.com/CodelyTV/repository_pattern-course) (including repository-double and integration-test counterexamples)
 - [CodelyTV Domain Events course](https://github.com/CodelyTV/domain_modeling-domain_events-course) (including self-asserting-double and Event Bus coverage counterexamples)
+- [CodelyTV Domain Modeling Errors course](https://github.com/CodelyTV/domain_modeling-errors-course) (including Result, Effect, stale-contract, and mock counterexamples)

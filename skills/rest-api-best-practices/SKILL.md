@@ -46,7 +46,7 @@ Use this skill when the main question is how to design, review, or improve a RES
 5. **Define error responses.**
    - Use the right 4xx or 5xx status code — never return 200 for errors.
    - Return a structured error body with a machine-readable code and a human-readable message.
-   - Follow RFC 7807 (Problem Details) when the team needs a standard.
+   - Follow RFC 9457 (Problem Details, which obsoletes RFC 7807) when the team needs a standard.
 
 6. **Add versioning.**
    - Default to URL versioning (`/v1/`).
@@ -113,7 +113,7 @@ Avoid exposing raw CRUD when the domain has real business operations. Prefer `PO
 - Read `references/url-design.md` for URL structure, naming conventions, nesting rules, versioning, and task-based URLs.
 - Read `references/http-semantics.md` for HTTP method semantics, idempotency, safety, status code selection, and key headers.
 - Read `references/request-response-design.md` for filtering, sorting, pagination (offset and cursor), content negotiation, and response shape.
-- Read `references/error-handling.md` for error response formats (RFC 7807 and custom envelope), status code mapping, domain error translation, and validation errors.
+- Read `references/error-handling.md` for RFC 9457 Problem Details, centralized mapping, status policy, redaction, domain failure translation, and validation errors.
 - Read `references/security.md` for authentication (JWT, API keys, OAuth 2.0), authorization, rate limiting, CORS, and HTTPS enforcement.
 - Read `references/api-design-philosophy.md` for REST architectural constraints, the CRUD anti-pattern, task-based API design, and HATEOAS.
 - Read `references/observability.md` for request IDs, structured logging, metrics, distributed tracing, health endpoints, and alerting.
@@ -140,7 +140,7 @@ This skill is synthesized from:
 
 - *REST API Design Rulebook* by Mark Masse
 - *RESTful Web APIs* by Leonard Richardson & Mike Amundsen
-- RFC 7807 — Problem Details for HTTP APIs
+- RFC 9457 — Problem Details for HTTP APIs
 - RFC 9110 — HTTP Semantics
 - Fran Iglesias — API REST series (franiglesias.github.io)
 - Derek Comartin — "CRUD APIs are Poor Design" (codeopinion.com)

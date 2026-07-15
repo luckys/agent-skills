@@ -59,7 +59,7 @@ func (h *OrderHandler) Create(w http.ResponseWriter, r *http.Request) {
 
     order, err := h.service.Create(r.Context(), body)
     if err != nil {
-        renderDomainError(w, err)
+        renderDomainError(w, r, err)
         return
     }
 
@@ -70,7 +70,7 @@ func (h *OrderHandler) Create(w http.ResponseWriter, r *http.Request) {
 func (h *OrderHandler) Delete(w http.ResponseWriter, r *http.Request) {
     id := chi.URLParam(r, "id")
     if err := h.service.Delete(r.Context(), id); err != nil {
-        renderDomainError(w, err)
+        renderDomainError(w, r, err)
         return
     }
     w.WriteHeader(http.StatusNoContent)
@@ -126,7 +126,7 @@ func decodeAndValidate[T any](r *http.Request) (T, []ValidationError, error) {
 }
 ```
 
-## Error Response Format (RFC 7807)
+## Error Response Format (RFC 9457)
 
 ```go
 package handler
@@ -159,7 +159,9 @@ func renderProblem(w http.ResponseWriter, status int, code, detail string) {
         Status: status,
         Detail: detail,
     }
-    renderJSON(w, status, p)
+    w.Header().Set("Content-Type", "application/problem+json")
+    w.WriteHeader(status)
+    _ = json.NewEncoder(w).Encode(p)
 }
 
 func renderJSON(w http.ResponseWriter, status int, v any) {
@@ -176,25 +178,28 @@ package handler
 
 import (
     "errors"
+    "fmt"
     "net/http"
     "your/module/domain"
+    "your/module/middleware"
 )
 
-func renderDomainError(w http.ResponseWriter, err error) {
+func renderDomainError(w http.ResponseWriter, r *http.Request, err error) {
     var notFound *domain.OrderNotFound
     var alreadyCancelled *domain.OrderAlreadyCancelled
     var insufficientStock *domain.InsufficientStock
 
     switch {
     case errors.As(err, &notFound):
-        renderProblem(w, http.StatusNotFound, "ORDER_NOT_FOUND", err.Error())
+        renderProblem(w, http.StatusNotFound, "ORDER_NOT_FOUND", "Order not found.")
     case errors.As(err, &alreadyCancelled):
         renderProblem(w, http.StatusConflict, "ORDER_ALREADY_CANCELLED", "This order has already been cancelled.")
     case errors.As(err, &insufficientStock):
         renderProblem(w, http.StatusUnprocessableEntity, "INSUFFICIENT_STOCK",
             fmt.Sprintf("Stock is short by %d units.", insufficientStock.Shortfall))
     default:
-        slog.Error("unhandled error", "err", err)
+        requestID := middleware.RequestID(r)
+        safeExceptionLogger.Capture(err, requestID) // redacts fields but preserves the cause chain
         renderProblem(w, http.StatusInternalServerError, "INTERNAL_ERROR", "An unexpected error occurred.")
     }
 }
@@ -310,7 +315,7 @@ import (
 
 // chi/middleware.RequestID handles this automatically.
 // Access it in handlers:
-func requestIDFromContext(r *http.Request) string {
+func RequestID(r *http.Request) string {
     return middleware.GetReqID(r.Context())
 }
 
@@ -332,7 +337,7 @@ func (h *OrderHandler) Cancel(w http.ResponseWriter, r *http.Request) {
 
     order, err := h.service.Cancel(r.Context(), id, user.ID)
     if err != nil {
-        renderDomainError(w, err)
+        renderDomainError(w, r, err)
         return
     }
     renderJSON(w, http.StatusOK, order)

@@ -96,12 +96,14 @@ public class ShippingAddressRequest {
 // MethodArgumentNotValidException → handled in exception handler below.
 ```
 
-## Error Response Format (RFC 7807)
+## Error Response Format (RFC 9457)
 
 ```java
 package com.example.orders.api.error;
 
 import java.util.List;
+import org.springframework.http.MediaType;
+import org.slf4j.MDC;
 
 public record ProblemDetails(
     String type,
@@ -128,12 +130,20 @@ public record ProblemDetails(
 @RestControllerAdvice
 public class GlobalExceptionHandler {
 
+    private static String publicValidationMessage(String code) {
+        return switch (code) {
+            case "NotNull", "NotBlank" -> "Required field.";
+            case "Size" -> "Invalid length.";
+            default -> "Invalid value.";
+        };
+    }
+
     @ExceptionHandler(MethodArgumentNotValidException.class)
     public ResponseEntity<ProblemDetails> handleValidation(MethodArgumentNotValidException ex) {
         List<ProblemDetails.FieldError> errors = ex.getBindingResult()
             .getFieldErrors()
             .stream()
-            .map(e -> new ProblemDetails.FieldError(e.getField(), e.getDefaultMessage()))
+            .map(e -> new ProblemDetails.FieldError(e.getField(), publicValidationMessage(e.getCode())))
             .toList();
 
         ProblemDetails body = new ProblemDetails(
@@ -143,32 +153,37 @@ public class GlobalExceptionHandler {
             "The request body contains fields that failed validation.",
             errors
         );
-        return ResponseEntity.unprocessableEntity().body(body);
+        return ResponseEntity.unprocessableEntity().contentType(MediaType.APPLICATION_PROBLEM_JSON).body(body);
     }
 
     @ExceptionHandler(OrderNotFoundException.class)
     public ResponseEntity<ProblemDetails> handleOrderNotFound(OrderNotFoundException ex) {
         return ResponseEntity.status(404)
-            .body(ProblemDetails.of(404, "ORDER_NOT_FOUND", ex.getMessage()));
+            .contentType(MediaType.APPLICATION_PROBLEM_JSON)
+            .body(ProblemDetails.of(404, "ORDER_NOT_FOUND", "Order not found."));
     }
 
     @ExceptionHandler(OrderAlreadyCancelledException.class)
     public ResponseEntity<ProblemDetails> handleAlreadyCancelled(OrderAlreadyCancelledException ex) {
         return ResponseEntity.status(409)
+            .contentType(MediaType.APPLICATION_PROBLEM_JSON)
             .body(ProblemDetails.of(409, "ORDER_ALREADY_CANCELLED", "This order has already been cancelled."));
     }
 
     @ExceptionHandler(InsufficientStockException.class)
     public ResponseEntity<ProblemDetails> handleInsufficientStock(InsufficientStockException ex) {
         return ResponseEntity.status(422)
+            .contentType(MediaType.APPLICATION_PROBLEM_JSON)
             .body(ProblemDetails.of(422, "INSUFFICIENT_STOCK",
                 "Stock is short by " + ex.getShortfall() + " units."));
     }
 
     @ExceptionHandler(Exception.class)
     public ResponseEntity<ProblemDetails> handleUnknown(Exception ex) {
-        log.error("Unhandled exception", ex);
+        String requestId = MDC.get("requestId");
+        safeExceptionLogger.capture(ex, requestId);
         return ResponseEntity.internalServerError()
+            .contentType(MediaType.APPLICATION_PROBLEM_JSON)
             .body(ProblemDetails.of(500, "INTERNAL_ERROR", "An unexpected error occurred."));
     }
 }
@@ -282,10 +297,8 @@ public class RequestIdFilter implements Filter {
         HttpServletRequest  request  = (HttpServletRequest)  req;
         HttpServletResponse response = (HttpServletResponse) res;
 
-        String requestId = request.getHeader("X-Request-ID");
-        if (requestId == null || requestId.isBlank()) {
-            requestId = UUID.randomUUID().toString();
-        }
+        String upstreamRequestId = request.getHeader("X-Request-ID"); // validate/log separately if needed
+        String requestId = UUID.randomUUID().toString();
 
         response.setHeader("X-Request-ID", requestId);
 

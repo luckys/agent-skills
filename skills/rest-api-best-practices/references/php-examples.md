@@ -102,11 +102,11 @@ class CreateOrderRequest extends FormRequest
 //   }
 // }
 
-// To use RFC 7807 format, override failedValidation:
+// To use RFC 9457 Problem Details, override failedValidation:
 protected function failedValidation(Validator $validator)
 {
     $errors = collect($validator->errors()->toArray())
-        ->map(fn ($messages, $field) => ['field' => $field, 'message' => $messages[0]])
+        ->map(fn ($_messages, $field) => ['field' => $field, 'message' => 'Invalid value.'])
         ->values()
         ->all();
 
@@ -116,11 +116,11 @@ protected function failedValidation(Validator $validator)
         'status' => 422,
         'detail' => 'The request body contains fields that failed validation.',
         'errors' => $errors,
-    ], 422));
+    ], 422, ['Content-Type' => 'application/problem+json']));
 }
 ```
 
-## Error Response Format (RFC 7807)
+## Error Response Format (RFC 9457)
 
 ```php
 // app/Exceptions/Handler.php — Laravel
@@ -142,7 +142,7 @@ class Handler extends ExceptionHandler
     private function handleApiException($request, Throwable $e): JsonResponse
     {
         if ($e instanceof OrderNotFoundException) {
-            return $this->problem(404, 'ORDER_NOT_FOUND', $e->getMessage());
+            return $this->problem(404, 'ORDER_NOT_FOUND', 'Order not found.');
         }
         if ($e instanceof OrderAlreadyCancelledException) {
             return $this->problem(409, 'ORDER_ALREADY_CANCELLED', 'This order has already been cancelled.');
@@ -151,7 +151,7 @@ class Handler extends ExceptionHandler
             return $this->problem(422, 'INSUFFICIENT_STOCK', "Stock is short by {$e->shortfall} units.");
         }
 
-        logger()->error('Unhandled exception', ['exception' => $e]);
+        app(SafeExceptionLogger::class)->capture($e, $request->attributes->get('request_id'));
         return $this->problem(500, 'INTERNAL_ERROR', 'An unexpected error occurred.');
     }
 
@@ -163,7 +163,7 @@ class Handler extends ExceptionHandler
             'title'  => str_replace('_', ' ', $code),
             'status' => $status,
             'detail' => $detail,
-        ], $status);
+        ], $status, ['Content-Type' => 'application/problem+json']);
     }
 }
 ```
@@ -257,7 +257,7 @@ protected function unauthenticated($request, AuthenticationException $exception)
         'title'  => 'Unauthorized',
         'status' => 401,
         'detail' => 'Authentication is required to access this resource.',
-    ], 401);
+    ], 401, ['Content-Type' => 'application/problem+json']);
 }
 ```
 
@@ -273,8 +273,10 @@ class RequestIdMiddleware
 {
     public function handle($request, Closure $next)
     {
-        $requestId = $request->header('X-Request-ID') ?? Str::uuid()->toString();
+        $upstreamRequestId = $request->header('X-Request-ID'); // log separately after validation if needed
+        $requestId = Str::uuid()->toString();
         $request->headers->set('X-Request-ID', $requestId);
+        $request->attributes->set('request_id', $requestId);
 
         $response = $next($request);
         $response->headers->set('X-Request-ID', $requestId);

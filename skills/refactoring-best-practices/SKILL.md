@@ -1,6 +1,6 @@
 ---
 name: refactoring-best-practices
-description: Safe refactoring guidance for legacy and existing codebases. Use when improving design without changing behavior, creating seams around hard dependencies, extracting a repository from direct SQL/ORM access, introducing Domain Events into legacy workflows, adding characterization tests, splitting large classes or methods, introducing value objects, replacing conditionals, or incrementally evolving object-oriented code under risk.
+description: Safe refactoring guidance for legacy and existing codebases. Use when improving design without changing behavior, creating seams around hard dependencies, migrating null/string/generic exceptions to typed failure contracts, extracting a repository from direct SQL/ORM access, introducing Domain Events into legacy workflows, adding characterization tests, splitting large classes or methods, introducing value objects, replacing conditionals, or incrementally evolving code under risk.
 license: MIT
 metadata:
   author: luckys
@@ -86,6 +86,7 @@ Use this skill when the main challenge is changing existing code safely.
 - Read `references/legacy-code-techniques.md` for Sprout, Wrap, Extract and Override, and other techniques for working without tests.
 - Read `references/characterization-tests.md` for how to write tests before refactoring untested code.
 - Read `references/domain-event-migration.md` for incrementally moving legacy side effects to events/subscribers, preserving failure semantics, durable handoff, and CDC as a migration bridge.
+- Read `references/error-contract-migration.md` for safely replacing nulls, strings, and generic exceptions while preserving failure timing, diagnostics, redaction, and public contracts.
 - Read `references/fran-iglesias-refactoring-guidance.md` for practical refactoring heuristics distilled from Fran Iglesias.
 - Read `references/language-examples.md` for before/after style examples in multiple languages.
 
@@ -107,3 +108,4 @@ This skill is synthesized from ideas emphasized in:
 - [CodelyTV Value Objects course](https://github.com/CodelyTV/value_objects-course) (incremental primitive-to-domain-value refactoring)
 - [CodelyTV Repository Pattern course](https://github.com/CodelyTV/repository_pattern-course) (incremental direct-SQL-to-port refactoring)
 - [CodelyTV Domain Events course](https://github.com/CodelyTV/domain_modeling-domain_events-course) (legacy event seams and CDC counterexamples)
+- [CodelyTV Domain Modeling Errors course](https://github.com/CodelyTV/domain_modeling-errors-course) (incremental exception-to-Result and boundary-contract lessons)

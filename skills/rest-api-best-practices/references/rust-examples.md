@@ -82,10 +82,10 @@ async fn create_order(
 }
 ```
 
-## Error Response Format (RFC 7807)
+## Error Response Format (RFC 9457)
 
 ```rust
-use axum::{http::StatusCode, response::{IntoResponse, Response}, Json};
+use axum::{http::{header, StatusCode}, response::{IntoResponse, Response}, Json};
 use serde::Serialize;
 
 #[derive(Serialize)]
@@ -132,22 +132,27 @@ enum DomainError {
 enum ApiError {
     Domain(DomainError),
     Validation(validator::ValidationErrors),
+    Unexpected { correlation_id: String, source: anyhow::Error },
 }
 
 impl IntoResponse for ApiError {
     fn into_response(self) -> Response {
         let (status, code, detail) = match self {
-            ApiError::Domain(DomainError::OrderNotFound(id)) =>
-                (StatusCode::NOT_FOUND, "ORDER_NOT_FOUND", format!("Order {id} not found.")),
+            ApiError::Domain(DomainError::OrderNotFound(_)) =>
+                (StatusCode::NOT_FOUND, "ORDER_NOT_FOUND", "Order not found.".into()),
             ApiError::Domain(DomainError::OrderAlreadyCancelled) =>
                 (StatusCode::CONFLICT, "ORDER_ALREADY_CANCELLED", "This order has already been cancelled.".into()),
             ApiError::Domain(DomainError::InsufficientStock(n)) =>
                 (StatusCode::UNPROCESSABLE_ENTITY, "INSUFFICIENT_STOCK", format!("Stock is short by {n} units.")),
             ApiError::Validation(_) =>
                 (StatusCode::UNPROCESSABLE_ENTITY, "VALIDATION_FAILED", "The request body failed validation.".into()),
+            ApiError::Unexpected { correlation_id, source } => {
+                safe_exception_logger::capture(&source, &correlation_id);
+                (StatusCode::INTERNAL_SERVER_ERROR, "INTERNAL_ERROR", "An unexpected error occurred.".into())
+            },
         };
         let body = problem(status, code, &detail);
-        (status, Json(body)).into_response()
+        (status, [(header::CONTENT_TYPE, "application/problem+json")], Json(body)).into_response()
     }
 }
 
@@ -235,13 +240,13 @@ async fn auth(mut req: Request, next: Next) -> Result<Response, ApiError> {
 use axum::{extract::Request, middleware::Next, response::Response};
 use uuid::Uuid;
 
+#[derive(Clone)]
+struct RequestId(String);
+
 async fn request_id(mut req: Request, next: Next) -> Response {
-    let id = req
-        .headers()
-        .get("X-Request-ID")
-        .and_then(|h| h.to_str().ok())
-        .map(String::from)
-        .unwrap_or_else(|| Uuid::new_v4().to_string());
+    let upstream_id = req.headers().get("X-Request-ID"); // validate/log separately if needed
+    let id = Uuid::new_v4().to_string();
+    req.extensions_mut().insert(RequestId(id.clone()));
 
     let mut res = next.run(req).await;
     res.headers_mut().insert("X-Request-ID", id.parse().unwrap());

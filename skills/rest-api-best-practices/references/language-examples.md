@@ -19,7 +19,7 @@ Each language file covers the same set of implementation patterns:
 - HTTP method handlers (GET, POST, PATCH, DELETE)
 - Status code responses (200, 201, 204, 4xx, 5xx)
 - Request body validation
-- Error response format (RFC 7807 or custom envelope)
+- Error response format (RFC 9457 Problem Details or custom envelope)
 - Pagination (offset-based with Link header)
 - Filtering and sorting via query parameters
 - Authentication middleware (JWT Bearer)

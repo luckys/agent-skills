@@ -74,6 +74,7 @@ Domain-Driven Design guidance for modeling complex domains.
 - Cross-Aggregate consistency, optimistic concurrency, creation vs. reconstitution
 - Repository contracts, Repository vs DAO/query service/gateway, mapping, absence, and adapter testing
 - Domain Event semantics, granularity, payloads, lifecycle recording, and Integration Event translation
+- Typed domain failure ownership, Option vs Result/Either vs exceptions, and exhaustive handling
 - Context Mapping (ACL, Open Host Service, Partnership, Shared Kernel, and more)
 - CQRS, Event Sourcing, Event Storming, Saga, Outbox/Inbox
 - Hexagonal Architecture (Ports & Adapters)
@@ -103,6 +104,7 @@ Test-Driven Development guidance for driving implementation from tests.
 - Invariant-first Aggregate tests, atomic failure assertions, deterministic Mothers, concurrency tests
 - Value Object contract tests: equality laws, defensive copies, normalization, and round trips
 - Domain Event, subscriber, Event Bus, Outbox/Inbox, and CDC contract tests
+- Typed error/Result composition, exhaustive mapping, redaction, and unknown-failure tests
 - Examples in TypeScript, Java, Python, C#, Ruby, PHP, Go, and Rust
 
 ### fp-best-practices
@@ -124,7 +126,7 @@ REST API design guidance for building clean, consistent, and consumer-friendly A
 - URL naming conventions, resource nesting, and versioning strategy
 - HTTP method semantics (safe, idempotent, cacheable) and status code selection
 - Request and response design: filtering, sorting, cursor and offset pagination, content negotiation
-- Error response formats: RFC 7807 Problem Details and custom envelopes
+- Error response formats: RFC 9457 Problem Details and consistent custom envelopes
 - Security: JWT, API keys, OAuth 2.0, rate limiting, CORS, and HTTPS enforcement
 - CRUD anti-pattern: why task-based APIs (`POST /orders/{id}/cancel`) are more expressive than raw CRUD
 - HATEOAS, REST architectural constraints, and API-as-a-product thinking
@@ -186,6 +188,6 @@ Skills are synthesized from:
 - fp-ts, Effect-TS, and Ramda library documentation
 - *REST API Design Rulebook* — Mark Masse
 - *RESTful Web APIs* — Leonard Richardson & Mike Amundsen
-- RFC 7807 (Problem Details), RFC 9110 (HTTP Semantics)
+- RFC 9457 (Problem Details), RFC 9110 (HTTP Semantics)
 - Fran Iglesias — API REST series (franiglesias.github.io)
 - Derek Comartin — "CRUD APIs are Poor Design" (codeopinion.com)

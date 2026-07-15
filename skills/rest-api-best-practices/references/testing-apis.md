@@ -50,14 +50,17 @@ expect(res.status).toBe(201);
 expect(res.headers.location).toMatch(/^\/v1\/orders\/ord_/);
 expect(res.body).toMatchObject({ status: "pending" });
 
-// Error case — assert the RFC 7807 envelope
+// Error case — assert the RFC 9457 Problem Details envelope
 const bad = await request(app).post("/v1/orders").send({});
 expect(bad.status).toBe(422);
+expect(bad.headers["content-type"]).toMatch(/^application\/problem\+json/);
 expect(bad.body.type).toContain("validation-failed");
 expect(bad.body.errors).toEqual(
   expect.arrayContaining([expect.objectContaining({ field: "items" })]),
 );
 ```
+
+For every declared application failure, test status, `application/problem+json`, stable API-owned `type`, and explicitly safe details. Add an unknown-failure case that proves a generic 500 is returned and the failure is logged with a correlation ID. Include negative assertions that raw exception messages, IDs, rejected content, SQL, and stack traces are absent.
 
 ## Contract Testing
 

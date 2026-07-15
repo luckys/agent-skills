@@ -1,6 +1,6 @@
 ---
 name: ddd-best-practices
-description: Domain-Driven Design guidance for modeling complex domains. Use when designing Bounded Contexts or Subdomains, discovering Aggregate boundaries from invariants and transactions, defining Aggregate Roots, designing Domain Events or repository contracts, choosing Repository vs DAO/query service/gateway, splitting oversized Aggregates, choosing between Entities, Value Objects, and Domain Services, coordinating cross-Aggregate consistency, applying Context Mapping patterns, implementing CQRS or Event Sourcing, building a Ubiquitous Language, applying Hexagonal Architecture, or reviewing whether domain logic leaks into infrastructure or application layers.
+description: Domain-Driven Design guidance for modeling complex domains. Use when designing Bounded Contexts or Subdomains, discovering Aggregate boundaries from invariants and transactions, defining Aggregate Roots, designing Domain Events, typed domain failures, or repository contracts, choosing exception vs Result/Either/Option semantics, choosing Repository vs DAO/query service/gateway, splitting oversized Aggregates, coordinating cross-Aggregate consistency, applying Context Mapping patterns, implementing CQRS or Event Sourcing, building a Ubiquitous Language, applying Hexagonal Architecture, or reviewing layer ownership.
 license: MIT
 metadata:
   author: luckys
@@ -103,7 +103,7 @@ Return complete Aggregates for invariant-bearing work; use dedicated query model
 - Read `references/cqrs-and-events.md` for CQRS, Event Sourcing, Event Storming, and process managers.
 - Read `references/hexagonal-architecture.md` for Ports & Adapters: primary/driven ports, adapters, dependency direction, test strategy, Walking Skeleton implementation, and comparison with Clean/Onion Architecture.
 - Read `references/ddd-in-practice.md` for practical DDD application: discovery process (Impact Mapping, Model Exploration Whirlpool), team topology, DDD adoption anti-patterns, and PHP implementation examples (Value Objects, Entities, Aggregate Root, Application Service, Specification).
-- Read `references/domain-errors.md` for typed failure contracts when callers need distinction or recovery, error layer ownership, Result types, safe delivery mapping, and event-processing failures.
+- Read `references/domain-errors.md` for failure taxonomy and ownership, Option vs Result/Either vs exception decisions, stable codes, exhaustive composition, state atomicity, and safe boundary translation.
 - Read `references/read-models.md` for read model patterns: aggregate.toPrimitives() vs dedicated read models, CQRS read side, use case structure for queries, projection handlers (DomainEventSubscriber), idempotency, synchronous vs asynchronous projections.
 - Read `references/typescript-ddd-examples.md` for the TypeScript DDD skeleton: folder structure by Bounded Context, explicit Value Objects, AggregateRoot/DomainEvent examples, creation vs reconstitution strategies, use case structure, CommandBus/QueryBus, Object Mother, and Criteria pattern.
 - Read `references/go-ddd-examples.md` for DDD in Go: folder structure by Bounded Context, Value Objects, Aggregate Root with unexported fields, Domain Events, Repository interface (port) vs implementation (adapter), Use Case, ACL, CQRS query side, Domain Service.
@@ -131,3 +131,4 @@ This skill is synthesized from:
 - [CodelyTV Aggregates course](https://github.com/CodelyTV/aggregates-course)
 - [CodelyTV Repository Pattern course](https://github.com/CodelyTV/repository_pattern-course) (including production counterexamples)
 - [CodelyTV Domain Events course](https://github.com/CodelyTV/domain_modeling-domain_events-course) (including modeling and delivery counterexamples)
+- [CodelyTV Domain Modeling Errors course](https://github.com/CodelyTV/domain_modeling-errors-course) (including Optional, Result, Effect, exhaustivity, and boundary counterexamples)
