@@ -36,7 +36,7 @@ Source: CodelyTV/infrastructure_design-transactions-course
 - Use cases that span multiple bounded contexts or remote services (use sagas / process managers instead)
 - Very long-running operations (holding a DB transaction for seconds causes lock contention)
 
-**Practical heuristic:** The use case commonly owns the transaction boundary, but the Aggregate owns the consistency boundary. Updating multiple Aggregate Roots in one local transaction is possible, yet it is a design warning: first verify that the rule is truly atomic rather than a workflow that can use events or a process manager. Multiple tables belonging to one Aggregate are not multiple consistency boundaries. See `../../ddd-best-practices/references/aggregates.md`.
+**Practical heuristic:** The use case commonly owns the transaction boundary, but the Aggregate owns the consistency boundary. Updating multiple Aggregate Roots in one local transaction is possible, yet it is a design warning: first verify that the rule is truly atomic rather than a workflow that can use events or a process manager. Multiple tables belonging to one Aggregate are not multiple consistency boundaries. Use `ddd-best-practices` to review the boundary.
 
 **Example:**
 ```typescript

@@ -27,6 +27,25 @@ Use when:
 - validation is repeated
 - a primitive carries domain meaning
 - formatting, parsing, comparison, or invariants belong to the value
+- same-typed primitives can be accidentally swapped
+
+Do not use when:
+- the fields are unrelated transport data
+- the rule depends on current time, tenant, repository state, or workflow
+- a type alias, brand, enum, or Parameter Object already provides enough clarity
+- the concept has no stable domain meaning yet
+
+Safe sequence:
+1. Characterize current behavior, errors, and serialized output.
+2. Name one cohesive concept and separate intrinsic rules from contextual policy.
+3. Add the Value Object beside the primitive API.
+4. Convert primitives at one boundary and migrate callers incrementally.
+5. Move duplicated validation, normalization, comparison, and behavior.
+6. Add semantic equality, matching hashing, and defensive copies.
+7. Verify persistence and transport round trips.
+8. Remove obsolete primitive validation only after all feedback is green.
+
+Use `oop-best-practices` for the target Value Object design contract.
 
 ## Introduce First-Class Collection
 
@@ -55,7 +74,7 @@ Use when:
 - the current name is an abbreviation or a generic word that carries no domain meaning
 - the domain has evolved and the old name reflects an outdated understanding
 
-Note: rename is the safest refactoring move — it changes no behavior.
+Note: rename usually preserves runtime behavior, but can break reflection, serialization, DI conventions, database mappings, and public consumers. Search those boundaries before treating it as mechanical.
 
 ## Inline Method
 
@@ -94,7 +113,7 @@ Use when:
 - callers cannot ask a question without causing a change in the system
 - testing becomes hard because observing a result also mutates state
 
-Note: methods that return values should have no side effects; methods that change state should return nothing.
+Note: prefer separation when it clarifies behavior, but treat this as a heuristic. Atomic operations such as `pop`, iterators, and fluent immutable APIs may legitimately return a result while changing or replacing state.
 
 ## Split Phase
 

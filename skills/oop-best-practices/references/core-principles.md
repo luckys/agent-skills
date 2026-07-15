@@ -34,9 +34,10 @@ Use these principles to guide normal coding work. They are meant to improve read
 
 ## Make Values Explicit
 
-- Introduce value objects for meaningful strings, numbers, and identifiers.
+- Introduce Value Objects when a cohesive value needs semantic type safety, intrinsic rules, normalization, comparison, formatting, or behavior.
+- Base equality and hashing on all defining values, and protect invariants with deeply immutable observation and defensive copies.
 - Introduce first-class collections when the collection has rules of its own.
-- Keep validation and formatting close to the concept.
+- Keep intrinsic validation and formatting close to the concept; pass contextual policy explicitly.
 
 ## Use Composition Carefully
 

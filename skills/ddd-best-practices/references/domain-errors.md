@@ -8,7 +8,7 @@ How to model failures that happen inside the domain in a maintainable, explicit,
 
 **Intent:** Provide a common base for all domain errors that enables type-safe catch blocks, structured serialization for API responses, and infrastructure-level error mapping without parsing message strings.
 
-**How it works:** `DomainError` extends `Error` and declares two abstract fields: `type` (a stable machine-readable error code) and `message` (a human-readable description). The `toPrimitives()` method serializes the error into a structured object that the delivery layer can return as a JSON response body. Every concrete domain error extends `DomainError`, not raw `Error`.
+**How it works:** `DomainError` extends `Error` and declares a stable machine-readable `type`. Expose only explicitly approved public context to delivery; keep diagnostic fields and sensitive values in server-side observability.
 
 **Example:**
 ```typescript
@@ -17,15 +17,16 @@ export abstract class DomainError extends Error {
   abstract type: string;
   abstract message: string;
 
-  toPrimitives(): { type: string; description: string; data: Record<string, unknown> } {
-    const props = Object.entries(this).filter(([key]) => key !== "type" && key !== "message");
-
+  toPublicPrimitives(): { type: string; description: string; data: Record<string, unknown> } {
     return {
       type: this.type,
-      description: this.message,
-      data: props.reduce((acc, [key, value]) => ({ ...acc, [key]: value }), {}),
+      description: this.publicDescription(),
+      data: this.publicContext(),
     };
   }
+
+  protected publicDescription(): string { return "The request could not be completed"; }
+  protected publicContext(): Record<string, unknown> { return {}; }
 }
 
 // Concrete domain error — extends DomainError, not plain Error
@@ -40,9 +41,9 @@ export class UserDoesNotExistError extends DomainError {
 }
 ```
 
-**Why `type` instead of relying on `constructor.name`:** Minification renames classes in production builds. A stable string literal in `type` survives bundling. Infrastructure error-mapping uses `error.constructor.name` only in development-mode utilities — the `type` field is the production-safe key.
+**Why `type` instead of relying on `constructor.name`:** Minification renames classes in production builds. A stable string literal in `type` survives bundling and is the production-safe mapping key.
 
-**Practical heuristic:** All domain errors extend `DomainError`. All infrastructure exceptions extend plain `Error`. Never catch a `DomainError` in the infrastructure layer — let it propagate to the delivery layer.
+**Practical heuristic:** Use a stable domain error contract for failures callers must distinguish. Infrastructure should not translate business failures into database or transport terminology; let application/delivery boundaries map them deliberately.
 
 ---
 
@@ -50,7 +51,7 @@ export class UserDoesNotExistError extends DomainError {
 
 **Intent:** Give each domain failure its own type so callers can distinguish between them without parsing error messages.
 
-**How it works:** Create a dedicated class per failure, extending the language's base `Error`. Name it after the domain concept that failed, not the technical action ("UserDoesNotExistError", not "NotFoundException"). The class lives in the domain layer alongside the aggregate it belongs to. Because it extends `Error`, it can be thrown and caught normally, but it carries a domain name that infrastructure and application layers can switch on.
+**How it works:** Create a dedicated type when callers need to distinguish, map, recover from, or attach structured context to a failure. Name it after the domain concept that failed, not the technical action ("UserDoesNotExistError", not "NotFoundException"). It may be an exception, `Result` error variant, or discriminated union according to the expected control flow.
 
 **Example:**
 ```typescript
@@ -75,7 +76,7 @@ export class UserFinder {
 }
 ```
 
-**Practical heuristic:** One error class per distinct failure. Never reuse a generic "DomainError" with a message string — that forces callers to parse text, breaking the abstraction.
+**Practical heuristic:** Give recoverably different failures stable machine-readable types or codes. Do not force callers to parse messages, but do not create a class for every programmer assertion when no caller can handle it differently.
 
 ---
 
@@ -83,7 +84,7 @@ export class UserFinder {
 
 **Intent:** Keep infrastructure errors out of the domain and domain errors out of infrastructure.
 
-**How it works:** The domain throws typed domain errors (e.g., `UserDoesNotExistError`). The application layer (use case) catches domain errors and re-throws or translates them for the delivery layer. The infrastructure layer throws its own typed exceptions for technical failures (e.g., `TooManyMariaDbConnectionsException`) — these are never caught in the domain. The API/controller layer catches both and maps them to HTTP status codes.
+**How it works:** The domain reports typed business failures through exceptions or result values. The application layer orchestrates and translates at system boundaries when needed. Infrastructure reports technical failures without importing domain policy, and the domain never catches infrastructure exceptions. Delivery maps application outcomes to protocol semantics.
 
 **Example:**
 ```typescript
@@ -108,7 +109,7 @@ export class TooManyMariaDbConnectionsException extends Error {
 }
 ```
 
-**Practical heuristic:** Domain errors flow upward (domain → application → delivery). Infrastructure errors stay in infrastructure or are wrapped by an anti-corruption layer before reaching the application layer.
+**Practical heuristic:** Preserve failure ownership while errors move upward. Translate at boundaries; do not relabel a database outage as a business rejection or leak SQL details to delivery.
 
 ---
 
@@ -145,7 +146,7 @@ export async function GET(
 
 **Intent:** Distinguish business rule violations (domain errors) from technical failures (infrastructure exceptions) so each is handled appropriately.
 
-**How it works:** A domain error means the operation was invalid according to business rules ("this user does not exist", "the email address is already taken"). An infrastructure exception means the system failed to complete a technically valid operation ("database connection refused", "message broker timeout"). Domain errors are expected and must be handled gracefully. Infrastructure exceptions are unexpected and should surface as alerts/retries, not be swallowed.
+**How it works:** A domain error means the operation was invalid according to business rules ("this user does not exist", "the email address is already taken"). An infrastructure exception means the system failed to complete a technically valid operation ("database connection refused", "message broker timeout"). Domain errors usually have an explicit caller-facing outcome. Infrastructure exceptions require operational handling such as retry, fallback, or alerting and must not be swallowed.
 
 **Example:**
 ```typescript
@@ -156,7 +157,7 @@ export class UserDoesNotExistError extends Error { ... }
 export class TooManyMariaDbConnectionsException extends Error { ... }
 ```
 
-**Practical heuristic:** If the error message belongs in a user-facing response body, it is a domain error. If it belongs in a monitoring alert, it is an infrastructure exception.
+**Practical heuristic:** Classify by ownership and recovery, not message wording. A domain failure may still need redaction, and an infrastructure failure may produce a safe user-facing response while retaining technical detail only in observability.
 
 ---
 
@@ -164,7 +165,7 @@ export class TooManyMariaDbConnectionsException extends Error { ... }
 
 **Intent:** Let the aggregate signal invalid state transitions without returning null or using out-of-band error codes.
 
-**How it works:** Aggregates throw typed domain errors from their methods and named constructors when invariants are violated. Value objects validate in their constructor and throw immediately. This means invalid state can never be constructed — the aggregate is either valid or throws. The use case propagates these errors up to the delivery layer.
+**How it works:** Aggregates and Value Objects reject invalid transitions or construction through their chosen typed failure mechanism. Constructors/factories may throw for trusted domain code; parsers may return `Result` when invalid external input is expected. Every successful public construction path must produce a valid value.
 
 **Example:**
 ```typescript
@@ -195,7 +196,7 @@ export class UserFinder {
 }
 ```
 
-**Practical heuristic:** Never return `null` from a domain finder — throw a typed error. `null` forces callers to null-check everywhere; a typed error carries domain meaning and is caught in one place.
+**Practical heuristic:** Make absence semantics explicit in the operation name and type. A `search`/`tryFind` may return optional absence; a `getRequired`/`findOrFail` reports a typed failure. Choose one contract instead of surprising callers.
 
 ---
 
@@ -205,7 +206,7 @@ export class UserFinder {
 
 **How it works:** Both helpers wrap the use-case call in a try/catch. If the caught error is a `DomainError`, they apply a mapping to produce the correct HTTP status. Unrecognized errors fall through as 500.
 
-`executeWithErrorHandling` accepts a callback `onError(error)` that returns a `NextResponse | void` — flexible for single-controller customization. `executeWithMappedErrorHandling` accepts a record `{ ErrorClassName: httpStatus }` — better for controllers that handle multiple error types uniformly.
+`executeWithErrorHandling` accepts a callback `onError(error)` that returns a `NextResponse | void` — flexible for single-controller customization. `executeWithMappedErrorHandling` accepts a record `{ DomainErrorType: httpStatus }` keyed by the stable `error.type` value — better for controllers that handle multiple error types uniformly.
 
 **Example:**
 ```typescript
@@ -233,8 +234,8 @@ export async function executeWithMappedErrorHandling(
   try {
     return await fn();
   } catch (error: unknown) {
-    if (error instanceof DomainError && errorMap[error.constructor.name]) {
-      return HttpNextResponse.domainError(error, errorMap[error.constructor.name]);
+    if (error instanceof DomainError && errorMap[error.type]) {
+      return HttpNextResponse.domainError(error, errorMap[error.type]);
     }
     return HttpNextResponse.internalServerError();
   }
@@ -368,7 +369,7 @@ export class Result<O, E extends DomainError> {
 |---|---|---|
 | Error type constraint | Unconstrained | Must extend `DomainError` |
 | Use when | Mixed error types, FP pipelines | Pure domain-error returns |
-| Interop | General purpose | Works directly with `DomainError.toPrimitives()` |
+| Interop | General purpose | Works directly with an explicitly redacted `DomainError.toPublicPrimitives()` |
 
 **When to prefer throw vs. return Either/Result:**
 - **Throw (default):** Use exceptions for failures that are exceptional — invariant violations, infrastructure errors. The delivery layer catches and maps to HTTP status. This is the pattern used throughout the CodelyTV courses.
@@ -475,7 +476,7 @@ async handleUserRegistered(event: UserRegisteredDomainEvent): Promise<void> {
 2. A relay process reads unpublished events from the outbox and publishes them to the broker.
 3. Mark events as published after successful delivery.
 
-This is the core production pattern for reliable domain event publishing in DDD systems. See also: **Outbox Pattern** in `enterprise-patterns.md`.
+This is the core production pattern for reliable domain event publishing in DDD systems. Use `infrastructure-design` for Outbox, retries, and delivery implementation.
 
 **Example:**
 ```typescript

@@ -1,6 +1,6 @@
 ---
 name: oop-best-practices
-description: Day-to-day OOP guidance for writing and reviewing clean, maintainable code. Use when naming classes and methods, defining object boundaries, introducing value objects or first-class collections, applying Tell Don't Ask or Law of Demeter, enforcing Object Calisthenics, reducing cohesion problems, choosing between inheritance and composition, or reviewing SOLID violations in TypeScript, Java, C#, Python, Ruby, or PHP.
+description: Day-to-day OOP guidance for writing and reviewing clean, maintainable code. Use when naming classes and methods, defining object boundaries, introducing or reviewing Value Objects (equality, hashing, immutability, parsing, normalization, optionality), designing first-class collections, applying Tell Don't Ask or Law of Demeter, enforcing Object Calisthenics, reducing cohesion problems, choosing between inheritance and composition, or reviewing SOLID violations in TypeScript, Java, C#, Python, Ruby, PHP, Go, or Rust.
 license: MIT
 metadata:
   author: luckys
@@ -81,10 +81,10 @@ Use it especially when the task benefits from:
 - Keep methods shallow and centered on one level of abstraction.
 - Use early returns when they reduce branching noise.
 - Keep classes cohesive instead of merely small.
-- Replace primitive obsession with value objects when values carry rules.
+- Introduce a Value Object when identity does not matter and semantic guarantees, type safety, or behavior justify a domain type.
 - Prefer telling collaborators what to do over asking for their data and deciding elsewhere.
 - Introduce first-class collections when collections have their own invariants.
-- Define explicit equality for Value Objects and use Entity identity for collection membership; do not rely on object-reference equality.
+- Give Value Objects semantic equality, matching hash behavior, and deeply immutable observation; do not rely on object-reference equality or shallow `readonly`.
 - Depend on small roles instead of volatile concrete details.
 - Prefer composition when behavior changes independently.
 - Keep public APIs smaller than internal implementation detail.
@@ -123,11 +123,12 @@ Use it especially when the task benefits from:
 - Read `references/rust-examples.md` for OOP concepts in Rust (structs, traits, newtype pattern, ownership as immutability).
 - Read `references/simple-design-rules.md` for Kent Beck's 4 Rules of Simple Design: passes tests, reveals intention, no duplication, fewest elements — with CodelyTV examples.
 - Read `references/oop-good-practices-examples.md` for Law of Demeter, Tell Don't Ask, Named Constructors, and cohesion/coupling examples from CodelyTV.
-- Read `references/value-objects-advanced.md` for advanced Value Object patterns: base class hierarchies (StringValueObject, Uuid), optional field strategies, typed collections, domain exceptions as named classes.
+- Read `references/value-objects-advanced.md` as the canonical Value Object guide: selection criteria, invariant ownership, construction/parsing, equality and hashing, deep immutability, behavior, optionality, first-class collections, persistence, testing, and safe evolution.
 
 ## Related Skills
 
 - Use `ddd-best-practices` when object ownership also defines a consistency, lifecycle, repository, or transaction boundary.
+- Use `tdd-best-practices` for Value Object contract tests, boundary analysis, property-based tests, and deterministic fixtures.
 - Use `refactoring-best-practices` for risky or legacy code changes.
 - Use `design-patterns-best-practices` when the main question is pattern selection.
 - Use `rest-api-best-practices` when designing the HTTP API surface that exposes these objects.
@@ -144,3 +145,4 @@ This skill is synthesized from ideas emphasized in:
 - Fran Iglesias's `good-practices` articles
 - Fran Iglesias's `Object Calisthenics` series
 - [CodelyTV Aggregates course](https://github.com/CodelyTV/aggregates-course)
+- [CodelyTV Value Objects course](https://github.com/CodelyTV/value_objects-course)

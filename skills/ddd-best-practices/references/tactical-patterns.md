@@ -34,7 +34,7 @@ Building blocks for modeling a domain. These are the vocabulary you use inside a
 
 **Intent:** Represent a descriptive aspect of the domain that has no conceptual identity — defined entirely by its attributes.
 
-**How it works:** A Value Object captures *what* something is, not *which* one it is. Two Value Objects with the same attributes are interchangeable. Because there is no identity to track, they can be freely copied or shared. The key design move is to make them immutable: any change to a value means replacing the object with a new one, not mutating the existing one. This eliminates a whole class of aliasing bugs and simplifies change management. The attributes of a Value Object should form a conceptual whole.
+**How it works:** A Value Object captures *what* something is, not *which* one it is. Two instances with the same defining values are interchangeable. Make observation deeply immutable by default so values can be copied or shared safely. Define semantic equality over every defining component and matching hashing where the language requires it. Keep only intrinsic, context-independent rules inside the value.
 
 **When to use:**
 - The concept is defined by its attributes: a monetary amount, a date range, an address, a color
@@ -47,9 +47,9 @@ Building blocks for modeling a domain. These are the vocabulary you use inside a
 - The object needs to be updated in place by multiple holders (use a mutable Entity instead, but reconsider the design)
 - The object needs its own lifecycle in the Repository
 
-**Key trade-off:** Immutability enables free sharing and copying but means replacement rather than mutation. In high-write scenarios (frequent changes, large object graphs) the cost of object creation can be significant — Evans notes that mutable Value Objects are acceptable in those cases, provided they are never shared.
+**Key trade-off:** Immutability enables safe sharing and stable equality but means replacement rather than in-place mutation. Keep any measured mutable optimization as an exclusively owned implementation detail rather than a mutable Value Object contract.
 
-**Related patterns:** Entity (the contrast — Entities need identity; Values do not), Flyweight (an implementation optimization for shared immutable Values), Specification (often implemented as a Value Object)
+**Related patterns:** Entity (the contrast — Entities need identity; Values do not), Flyweight (an implementation optimization for shared immutable Values), Specification (often implemented as a Value Object). Use `oop-best-practices` for construction, equality, hashing, deep immutability, optionality, and persistence guidance.
 
 **Practical heuristic:** If you can replace one instance with another that has the same attributes and no behavior changes, it is a Value Object. Make it immutable by default.
 

@@ -46,7 +46,7 @@ Use this skill when the main challenge is changing existing code safely.
 
 ## High-Value Refactoring Moves
 
-- Replace repeated parameter groups with value objects.
+- Replace a cohesive domain parameter group with a Value Object; use a Parameter Object when the group has no shared domain meaning or invariant.
 - Break large services into role-focused collaborators.
 - Move business rules out of controllers, scripts, and utility classes.
 - Replace type codes and unstable conditionals with explicit roles.
@@ -80,7 +80,7 @@ Use this skill when the main challenge is changing existing code safely.
 ## References
 
 - Read `references/safe-change-workflow.md` for seam-based refactoring guidance, sensing and separation, and the legacy code change algorithm.
-- Read `references/refactoring-moves.md` for tactical moves and when to use them.
+- Read `references/refactoring-moves.md` for tactical moves, including the incremental Value Object migration sequence, and when to use them.
 - Read `references/code-smells.md` when recognizing a problem, using temporal co-change as design evidence, and choosing the right move.
 - Read `references/legacy-code-techniques.md` for Sprout, Wrap, Extract and Override, and other techniques for working without tests.
 - Read `references/characterization-tests.md` for how to write tests before refactoring untested code.
@@ -102,3 +102,4 @@ This skill is synthesized from ideas emphasized in:
 - `Practical Object-Oriented Design in Ruby` by Sandi Metz
 - Fran Iglesias's `Object Calisthenics` series
 - [CodelyTV Aggregates course](https://github.com/CodelyTV/aggregates-course) (temporal coupling and Aggregate evolution)
+- [CodelyTV Value Objects course](https://github.com/CodelyTV/value_objects-course) (incremental primitive-to-domain-value refactoring)

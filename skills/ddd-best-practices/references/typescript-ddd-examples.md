@@ -58,81 +58,47 @@ tests/
 
 ---
 
-## ValueObject Base Class
+## Value Objects in TypeScript
 
-**Intent:** Enforce immutability, null safety, and structural equality for all Value Objects from a single base class.
+**Intent:** Give domain values explicit construction, immutable representation, and semantic equality without assuming one generic base can compare every representation safely.
 
-**How it works:** The generic `ValueObject<T>` holds the primitive value as `readonly`, rejects null/undefined in the constructor, and provides `equals()` by constructor name + value comparison. Concrete value objects extend `StringValueObject` or `Uuid` — which themselves extend `ValueObject` — adding domain-specific validation.
+**How it works:** Implement equality explicitly for each semantic type. A shared base may remove repetition for scalar strings, numbers, or booleans, but `Date`, arrays, objects, and composite values need domain-aware comparison and defensive copies. Composition, branded scalars, and records are valid alternatives to inheritance.
 
 **Example:**
 ```typescript
-// src/Contexts/Shared/domain/value-object/ValueObject.ts
-export type Primitives = String | string | number | Boolean | boolean | Date;
-
-export abstract class ValueObject<T extends Primitives> {
-  readonly value: T;
-
-  constructor(value: T) {
-    this.value = value;
-    this.ensureValueIsDefined(value);
-  }
-
-  private ensureValueIsDefined(value: T): void {
-    if (value === null || value === undefined) {
-      throw new InvalidArgumentError('Value must be defined');
-    }
-  }
-
-  equals(other: ValueObject<T>): boolean {
-    return other.constructor.name === this.constructor.name && other.value === this.value;
-  }
-
-  toString(): string {
-    return this.value.toString();
-  }
-}
-
-// src/Contexts/Shared/domain/value-object/StringValueObject.ts
-export abstract class StringValueObject extends ValueObject<string> {}
-
-// src/Contexts/Shared/domain/value-object/Uuid.ts
-export class Uuid extends ValueObject<string> {
-  constructor(value: string) {
-    super(value);
-    this.ensureIsValidUuid(value);
-  }
-
-  static random(): Uuid {
-    return new Uuid(uuid());
-  }
-
-  private ensureIsValidUuid(id: string): void {
-    if (!validate(id)) {
-      throw new InvalidArgumentError(`<${this.constructor.name}> does not allow the value <${id}>`);
-    }
-  }
-}
-
 // src/Contexts/Mooc/Courses/domain/CourseName.ts
-export class CourseName extends StringValueObject {
-  constructor(value: string) {
-    super(value);
-    this.ensureLengthIsLessThan30Characters(value);
+export class CourseName {
+  private constructor(readonly value: string) {}
+
+  static create(raw: string): CourseName {
+    const value = raw.trim();
+    if (value.length === 0 || value.length > 30) {
+      throw new CourseNameLengthExceeded(value);
+    }
+    return new CourseName(value);
   }
 
-  private ensureLengthIsLessThan30Characters(value: string): void {
-    if (value.length > 30) {
-      throw new CourseNameLengthExceeded(`The Course Name <${value}> has more than 30 characters`);
-    }
+  equals(other: CourseName): boolean {
+    return this.value === other.value;
   }
 }
 
 // src/Contexts/Mooc/Shared/domain/Courses/CourseId.ts
-// ID value objects simply extend Uuid — no additional code needed
-export class CourseId extends Uuid {}
+export class CourseId {
+  private constructor(readonly value: string) {}
+
+  static create(value: string): CourseId {
+    if (!validateUuid(value)) throw new InvalidCourseId(value);
+    return new CourseId(value);
+  }
+
+  equals(other: CourseId): boolean {
+    return this.value === other.value;
+  }
+}
 ```
 
-**Practical heuristic:** Every primitive you pass across a layer boundary (string IDs, string names, numeric amounts) should be wrapped in a Value Object. The wrapper is where validation, formatting, and equality live.
+**Practical heuristic:** Transport DTOs, commands, and messages normally carry primitives. Convert at a deliberate application/domain boundary, then use Value Objects in domain APIs where semantic distinction or guarantees justify them. Run `tsc --noEmit`; transpile-only tests do not prove type correctness.
 
 ---
 
@@ -140,7 +106,7 @@ export class CourseId extends Uuid {}
 
 **Intent:** Give every aggregate root the ability to collect domain events before publishing them, and enforce serialization to primitives.
 
-**How it works:** `AggregateRoot` maintains a private list of domain events. The aggregate records an event via `record()` when state changes. The application service calls `pullDomainEvents()` after persisting — this returns the events and clears the list, so events are never published twice. The abstract `toPrimitives()` forces each concrete aggregate to define how it serializes to a plain object for persistence.
+**How it works:** `AggregateRoot` maintains a private list of domain events. The aggregate records an event via `record()` when state changes. A best-effort in-process application service can drain these events after persistence. Durable cross-process delivery requires handing them to an Outbox in the same transaction as Aggregate state; do not clear the only event copy before durable handoff.
 
 **Example:**
 ```typescript
@@ -166,7 +132,7 @@ export abstract class AggregateRoot {
 }
 ```
 
-**Practical heuristic:** Never call `pullDomainEvents()` inside the aggregate itself. The application service — not the aggregate — is responsible for publishing events after the repository save completes.
+**Practical heuristic:** Never publish from inside the Aggregate. The application/Unit of Work owns durable handoff. Treat direct `save -> pull -> publish` as educational in-process delivery only; use `infrastructure-design` for transactional Outbox delivery.
 
 ---
 
@@ -207,8 +173,8 @@ export class Course extends AggregateRoot {
   // Reconstitution: used by the repository adapter — no events recorded
   static fromPrimitives(plainData: { id: string; name: string; duration: string }): Course {
     return new Course(
-      new CourseId(plainData.id),
-      new CourseName(plainData.name),
+      CourseId.create(plainData.id),
+      CourseName.create(plainData.name),
       new CourseDuration(plainData.duration)
     );
   }
@@ -223,7 +189,7 @@ export class Course extends AggregateRoot {
 }
 ```
 
-**Practical heuristic:** Always have two paths into an aggregate: a static factory for new instances (records events) and `fromPrimitives` for reconstitution from storage (no events). Never let infrastructure call `create()` when loading from the database.
+**Practical heuristic:** Keep creation and reconstitution semantically separate so loading cannot emit creation events. `create()` plus `fromPrimitives()` is one valid strategy; a dedicated mapper is another.
 
 ---
 
@@ -247,7 +213,7 @@ export abstract class DomainEvent {
 
   readonly aggregateId: string;
   readonly eventId: string;
-  readonly occurredOn: Date;
+  private readonly occurredOnMs: number;
   readonly eventName: string;
 
   constructor(params: {
@@ -257,9 +223,14 @@ export abstract class DomainEvent {
     occurredOn?: Date;
   }) {
     this.aggregateId = params.aggregateId;
-    this.eventId = params.eventId || Uuid.random().value;
-    this.occurredOn = params.occurredOn || new Date();
+    this.eventId = params.eventId ?? Uuid.random().value;
+    this.occurredOnMs = (params.occurredOn ?? new Date()).getTime();
+    if (!Number.isFinite(this.occurredOnMs)) throw new InvalidEventDate();
     this.eventName = params.eventName;
+  }
+
+  get occurredOn(): Date {
+    return new Date(this.occurredOnMs);
   }
 
   abstract toPrimitives(): DomainEventAttributes;
@@ -366,7 +337,7 @@ export interface DomainEventSubscriber<T extends DomainEvent> {
 }
 ```
 
-**Practical heuristic:** The application service receives `EventBus` by constructor injection. At test time, inject an in-memory spy. At production time, inject the RabbitMQ adapter.
+**Practical heuristic:** For best-effort in-process reactions, inject an in-memory bus or spy. For production broker delivery, persist an Outbox atomically and let a relay publish to RabbitMQ; do not publish directly from this use case.
 
 ---
 
@@ -374,7 +345,7 @@ export interface DomainEventSubscriber<T extends DomainEvent> {
 
 **Intent:** Orchestrate the domain — fetch, mutate via the aggregate, persist, publish events — with no business logic of its own.
 
-**How it works:** `CourseCreator` receives its dependencies through constructor injection (both typed as interfaces, never concrete classes). The `run()` method follows a fixed sequence: create the aggregate via its factory, save via the repository, publish events from `pullDomainEvents()`. The Command Handler translates the flat DTO command into typed Value Objects before calling the use case.
+**How it works:** `CourseCreator` receives dependencies through constructor injection. The Command Handler translates the flat DTO command into typed Value Objects. The direct publication below is suitable only for best-effort in-process reactions; replace it with a Unit of Work plus Outbox when events must survive failures.
 
 **Example:**
 ```typescript
@@ -401,20 +372,20 @@ export class CreateCourseCommandHandler
   implements CommandHandler<CreateCourseCommand> {
   constructor(private courseCreator: CourseCreator) {}
 
-  subscribedTo(): Command {
+  subscribedTo(): MessageConstructor<CreateCourseCommand> {
     return CreateCourseCommand;
   }
 
   async handle(command: CreateCourseCommand): Promise<void> {
-    const id       = new CourseId(command.id);
-    const name     = new CourseName(command.name);
+    const id       = CourseId.create(command.id);
+    const name     = CourseName.create(command.name);
     const duration = new CourseDuration(command.duration);
     await this.courseCreator.run({ id, name, duration });
   }
 }
 ```
 
-**Practical heuristic:** The use case (`CourseCreator.run`) should contain no `if` statements. Branching on domain conditions belongs inside the aggregate. The use case is the "traffic cop" — it sequences calls but makes no domain decisions.
+**Practical heuristic:** A use case may branch for orchestration, absence, authorization outcomes, retries, or policy results, but it must not own domain policy that belongs in the model. Treat it as a traffic controller, not as a rule-free syntax exercise.
 
 ---
 
@@ -463,24 +434,25 @@ export class MongoCourseRepository
 
 ---
 
-## Command / Query / Response — Marker Types
+## Command / Query Contracts
 
-**Intent:** Give the bus infrastructure type-safe contracts without introducing coupling to specific command or query classes.
+**Intent:** Give bus infrastructure type-safe command, query, response, and handler relationships without relying on empty structural marker types.
 
-**How it works:** `Command` and `Query` are abstract base classes with no fields — they are marker types. Concrete commands extend `Command` and add their primitive fields. `Response` is an empty interface that concrete response DTOs implement. The bus then uses these as generic constraints.
+**How it works:** Private/protected brands distinguish command and query families under TypeScript structural typing. A query carries its response type. Handlers return the constructor they subscribe to, not a message instance.
 
 **Example:**
 ```typescript
-// src/Contexts/Shared/domain/Command.ts
-export abstract class Command {}
+export abstract class Command {
+  protected readonly __commandBrand!: never;
+}
 
-// src/Contexts/Shared/domain/Query.ts
-export abstract class Query {}
+export abstract class Query<R> {
+  protected readonly __responseBrand!: R;
+}
 
-// src/Contexts/Shared/domain/Response.ts
-export interface Response {}
+export type MessageConstructor<T> = new (...args: any[]) => T;
 
-// Concrete command (carries flat primitives only — no Value Objects)
+// Serialized/external commands normally carry flat primitives.
 // src/Contexts/Mooc/Courses/domain/CreateCourseCommand.ts
 type Params = { id: string; name: string; duration: string };
 
@@ -498,7 +470,7 @@ export class CreateCourseCommand extends Command {
 }
 ```
 
-**Practical heuristic:** Commands carry flat primitives only — never Value Objects. The Command Handler is the boundary where primitives are wrapped into Value Objects before being passed to the use case.
+**Practical heuristic:** Serialized commands normally carry transport primitives and are converted at the handler boundary. A trusted in-process command may carry Value Objects when that contract is deliberate and no serialization boundary is implied.
 
 ---
 
@@ -506,29 +478,29 @@ export class CreateCourseCommand extends Command {
 
 **Intent:** Decouple the controller (driver adapter) from the use case by routing through a bus. The controller does not need to know which handler exists — it only dispatches a command or queries with a query.
 
-**How it works:** `CommandBus` has one method — `dispatch(command)` — which is fire-and-forget (`Promise<void>`). `QueryBus` has one method — `ask<R>(query)` — which returns a typed `Response`. Both are interfaces implemented in infrastructure.
+**How it works:** `CommandBus` dispatches a command and returns completion. `QueryBus` infers the response type carried by `Query<R>`. Both are interfaces implemented in infrastructure.
 
 **Example:**
 ```typescript
 // src/Contexts/Shared/domain/CommandBus.ts
 export interface CommandBus {
-  dispatch(command: Command): Promise<void>;
+  dispatch<T extends Command>(command: T): Promise<void>;
 }
 
 // src/Contexts/Shared/domain/QueryBus.ts
 export interface QueryBus {
-  ask<R extends Response>(query: Query): Promise<R>;
+  ask<R>(query: Query<R>): Promise<R>;
 }
 
 // src/Contexts/Shared/domain/CommandHandler.ts
 export interface CommandHandler<T extends Command> {
-  subscribedTo(): Command;  // returns the Command class (not instance)
+  subscribedTo(): MessageConstructor<T>;
   handle(command: T): Promise<void>;
 }
 
 // src/Contexts/Shared/domain/QueryHandler.ts
-export interface QueryHandler<Q extends Query, R extends Response> {
-  subscribedTo(): Query;
+export interface QueryHandler<R, Q extends Query<R>> {
+  subscribedTo(): MessageConstructor<Q>;
   handle(query: Q): Promise<R>;
 }
 ```
@@ -541,25 +513,27 @@ export interface QueryHandler<Q extends Query, R extends Response> {
 
 **Intent:** Provide a synchronous, in-process bus for development and testing. The registry (`CommandHandlers`, `QueryHandlers`) maps command/query classes to their handlers.
 
-**How it works:** The registry is a `Map<Command, CommandHandler>`. Handlers register themselves by returning their command class from `subscribedTo()`. The bus looks up the handler by the command's constructor at dispatch time, throwing a `CommandNotRegisteredError` if not found.
+**How it works:** The registry maps message constructors to handlers. Handlers register the concrete constructor returned by `subscribedTo()`. The bus looks up `command.constructor` at dispatch time and fails explicitly when no handler exists.
 
 **Example:**
 ```typescript
 // src/Contexts/Shared/infrastructure/CommandBus/CommandHandlers.ts
-export class CommandHandlers extends Map<Command, CommandHandler<Command>> {
-  constructor(commandHandlers: Array<CommandHandler<Command>>) {
-    super();
-    commandHandlers.forEach(commandHandler => {
-      this.set(commandHandler.subscribedTo(), commandHandler);
+export class CommandHandlers {
+  private readonly handlers = new Map<MessageConstructor<Command>, CommandHandler<any>>();
+
+  constructor(commandHandlers: ReadonlyArray<CommandHandler<any>>) {
+    commandHandlers.forEach((handler) => {
+      this.handlers.set(handler.subscribedTo(), handler);
     });
   }
 
-  public get(command: Command): CommandHandler<Command> {
-    const commandHandler = super.get(command.constructor);
+  get<T extends Command>(command: T): CommandHandler<T> {
+    const constructor = command.constructor as MessageConstructor<T>;
+    const commandHandler = this.handlers.get(constructor);
     if (!commandHandler) {
       throw new CommandNotRegisteredError(command);
     }
-    return commandHandler;
+    return commandHandler as CommandHandler<T>;
   }
 }
 
@@ -567,41 +541,31 @@ export class CommandHandlers extends Map<Command, CommandHandler<Command>> {
 export class InMemoryCommandBus implements CommandBus {
   constructor(private commandHandlers: CommandHandlers) {}
 
-  async dispatch(command: Command): Promise<void> {
+  async dispatch<T extends Command>(command: T): Promise<void> {
     const handler = this.commandHandlers.get(command);
     await handler.handle(command);
   }
 }
-
-// src/Contexts/Shared/infrastructure/QueryBus/InMemoryQueryBus.ts
-export class InMemoryQueryBus implements QueryBus {
-  constructor(private queryHandlersInformation: QueryHandlers) {}
-
-  async ask<R extends Response>(query: Query): Promise<R> {
-    const handler = this.queryHandlersInformation.get(query);
-    return (await handler.handle(query)) as Promise<R>;
-  }
-}
 ```
 
-**Practical heuristic:** The lookup key is `command.constructor` (the class itself), not the command instance. This is why `subscribedTo()` returns the class: `return CreateCourseCommand;` not `return new CreateCourseCommand(...)`.
+**Practical heuristic:** The lookup key is the message constructor, not an instance. Mirror the same typed constructor registry for queries. More elaborate buses can use explicit stable message names when constructors cannot cross serialization boundaries.
 
 ---
 
 ## Nullable Type Utility
 
-**Intent:** Express optional domain values clearly without ambiguity between `null` and `undefined`.
+**Intent:** Express one canonical absence representation in a domain API.
 
 **Example:**
 ```typescript
 // src/Contexts/Shared/domain/Nullable.ts
-export type Nullable<T> = T | null | undefined;
+export type Nullable<T> = T | null;
 
 // Usage in a repository return type
 async findById(id: CourseId): Promise<Nullable<Course>> { ... }
 ```
 
-**Practical heuristic:** Use `Nullable<T>` for values that may legitimately be absent. This makes the optionality visible in the type signature — callers must explicitly handle the null/undefined case.
+**Practical heuristic:** Choose either `null` or `undefined` within a domain API rather than combining both. Accept both only at an external parsing boundary and normalize immediately.
 
 ---
 
@@ -680,9 +644,9 @@ export class FilterOperator extends EnumValueObject<Operator> {
 
 ## Object Mother Pattern — Test Data Factories
 
-**Intent:** Centralize test data creation so tests stay short and readable. Object Mothers generate valid, random instances of domain objects. Each domain concept gets its own Mother class.
+**Intent:** Centralize valid test data creation so tests stay short and readable. Each domain concept gets its own Mother class with deterministic defaults and focused overrides.
 
-**How it works:** Each Mother has `create(explicit params)` and `random()` static methods. `random()` delegates to child Mothers for each field. A `WordMother` (or `MotherCreator`) provides random primitives (UUIDs, words, numbers). The test itself only specifies what is relevant to the test scenario — everything else is random.
+**How it works:** Each Mother has `create(explicit params)` and may provide seeded generation for intentional variation. The test specifies every value relevant to its rule. If randomness is used, inject/print the seed so failures reproduce exactly.
 
 **Example:**
 ```typescript
@@ -700,19 +664,21 @@ export class CourseMother {
     );
   }
 
-  static random(): Course {
+  static random(seed: number): Course {
     return this.create(
-      CourseIdMother.random(),
-      CourseNameMother.random(),
-      CourseDurationMother.random()
+      CourseIdMother.random(seed),
+      CourseNameMother.random(seed + 1),
+      CourseDurationMother.random(seed + 2)
     );
   }
 }
 
 // tests/Contexts/Mooc/Courses/domain/CourseNameMother.ts
 export class CourseNameMother {
-  static create(value: string): CourseName { return new CourseName(value); }
-  static random(): CourseName { return this.create(WordMother.random({ maxLength: 20 })); }
+  static create(value: string): CourseName { return CourseName.create(value); }
+  static random(seed: number): CourseName {
+    return this.create(WordMother.random({ seed, maxLength: 20 }));
+  }
   static invalidName(): string { return 'a'.repeat(40); }
 }
 
@@ -722,15 +688,19 @@ export class CreateCourseCommandMother {
     return { id: id.value, name: name.value, duration: duration.value };
   }
 
-  static random(): CreateCourseCommand {
-    return this.create(CourseIdMother.random(), CourseNameMother.random(), CourseDurationMother.random());
+  static random(seed: number): CreateCourseCommand {
+    return this.create(
+      CourseIdMother.random(seed),
+      CourseNameMother.random(seed + 1),
+      CourseDurationMother.random(seed + 2)
+    );
   }
 
-  static invalid(): CreateCourseCommand {
+  static invalid(seed: number): CreateCourseCommand {
     return {
-      id: CourseIdMother.random().value,
+      id: CourseIdMother.random(seed).value,
       name: CourseNameMother.invalidName(),  // 40 chars — exceeds limit
-      duration: CourseDurationMother.random().value
+      duration: CourseDurationMother.random(seed + 1).value
     };
   }
 }
@@ -761,7 +731,7 @@ beforeEach(() => {
 
 describe('CreateCourseCommandHandler', () => {
   it('should create a valid course', async () => {
-    const command = CreateCourseCommandMother.random();
+    const command = CreateCourseCommandMother.random(42);
     const course = CourseMother.from(command);
     const domainEvent = CourseCreatedDomainEventMother.fromCourse(course);
 
@@ -772,12 +742,11 @@ describe('CreateCourseCommandHandler', () => {
   });
 
   it('should throw error if course name length is exceeded', async () => {
-    expect(() => {
-      const command = CreateCourseCommandMother.invalid();
-      handler.handle(command);
-    }).toThrow(CourseNameLengthExceeded);
+    const command = CreateCourseCommandMother.invalid(42);
+
+    await expect(handler.handle(command)).rejects.toThrow(CourseNameLengthExceeded);
   });
 });
 ```
 
-**Practical heuristic:** The test follows the Arrange-Act-Assert pattern where all Arrange data comes from Mothers. Assertions are on the mock's recorded calls, not on return values. The mock's `assertSaveHaveBeenCalledWith` uses the same `equals()` logic as the Value Object — this is why VO equality matters in tests.
+**Practical heuristic:** Mothers provide valid deterministic defaults; override values relevant to the behavior. Verify calls after Act so a missing interaction cannot skip an assertion. Use seeded generation only when variation is intentional and reproducible.

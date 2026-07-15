@@ -38,6 +38,7 @@ Day-to-day OOP guidance for writing and reviewing clean, maintainable code.
 - Naming, object boundaries, and encapsulation
 - Tell Don't Ask, Law of Demeter, Object Calisthenics
 - Value objects, first-class collections, and primitive obsession
+- Value equality/hashing, deep immutability, parsing/normalization, optionality, and persistence mapping
 - Message-based design and role-oriented objects
 - SOLID principles in practice
 - Examples in TypeScript, Java, Python, C#, Ruby, PHP, Go, and Rust
@@ -97,6 +98,7 @@ Test-Driven Development guidance for driving implementation from tests.
 - BDD (Given/When/Then) and ATDD
 - James Carr's 15 anti-patterns + Ian Cooper's "TDD, Where Did It All Go Wrong"
 - Invariant-first Aggregate tests, atomic failure assertions, deterministic Mothers, concurrency tests
+- Value Object contract tests: equality laws, defensive copies, normalization, and round trips
 - Examples in TypeScript, Java, Python, C#, Ruby, PHP, Go, and Rust
 
 ### fp-best-practices
@@ -172,7 +174,7 @@ Skills are synthesized from:
 - *Working Effectively with Legacy Code* — Michael Feathers
 - *Practical Object-Oriented Design in Ruby* — Sandi Metz
 - *Implementation Patterns* — Kent Beck
-- CodelyTV repositories (TypeScript DDD skeleton, hexagonal architecture examples, Aggregates course)
+- CodelyTV repositories (TypeScript DDD skeleton, hexagonal architecture examples, Aggregates and Value Objects courses)
 - *Mostly Adequate Guide to Functional Programming* — Brian Lonsdorf (Professor Frisby)
 - *Domain Modeling Made Functional* — Scott Wlaschin
 - *Grokking Simplicity* — Eric Normand

@@ -81,6 +81,8 @@ Avoid generic `Ensurer`, `Manager`, or `Validator` services that accept raw prim
 
 Context-sensitive rules do not automatically belong in a Value Object. If a comment limit varies by tenant, role, product, or date, pass the policy explicitly or enforce it at the aggregate boundary rather than hiding ambient context in the value.
 
+Use `oop-best-practices` for the detailed Value Object contract. An Aggregate may safely expose immutable Value Objects or snapshots when doing so cannot bypass root-controlled mutation.
+
 ## Creation, Reconstitution, and Transitions
 
 Separate three semantic paths:
@@ -101,7 +103,7 @@ Reconstitution still has to produce a valid usable object, but rule evolution ne
 
 Use one aggregate root per transaction as the default, not an inviolable law. Multiple tables may persist one aggregate atomically. Updating multiple roots in one local transaction can be justified, but treat it as a boundary warning and document why eventual consistency is unacceptable.
 
-Protect concurrent updates when lost updates matter. Carry an expected Aggregate version across load and save, reject stale decisions, and choose retry versus user-visible conflict according to the command semantics. Do not silently use last-write-wins for business decisions. Read `../../infrastructure-design/references/transactions.md` for optimistic-lock implementation and integration testing.
+Protect concurrent updates when lost updates matter. Carry an expected Aggregate version across load and save, reject stale decisions, and choose retry versus user-visible conflict according to the command semantics. Do not silently use last-write-wins for business decisions. Use `infrastructure-design` for optimistic-lock implementation and integration testing.
 
 Watch for hot aggregates: many users appending to one root will serialize on one version even if they change unrelated children. Unbounded collections, repeated write conflicts, large payloads, and long lock times are evidence to revisit the boundary.
 
@@ -145,7 +147,7 @@ Test the root through public commands, with real value objects and child entitie
 - persistence round trips preserve the model
 - optimistic conflicts and global constraints work against real infrastructure
 
-Read `../../tdd-best-practices/references/aggregate-testing.md` for the complete testing workflow.
+Use `tdd-best-practices` for the complete Aggregate testing workflow.
 
 ## Common Failure Modes
 

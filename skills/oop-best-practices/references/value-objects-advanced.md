@@ -1,391 +1,355 @@
-# Value Objects — Advanced Patterns
+# Value Objects: Design, Implementation, and Evolution
 
-Source: CodelyTV `value_objects-course`
+Source: corrected synthesis of [CodelyTV/value_objects-course](https://github.com/CodelyTV/value_objects-course), with DDD, language, and production-safety caveats.
 
-This file covers advanced value object patterns beyond basic immutability: refactoring to value objects, optional value objects, domain exception modeling, complex value objects, and typed collections.
+Use this as the canonical detailed Value Object reference. The course is valuable as a progression of refactorings, but several snapshots are intentionally intermediate or technically unsafe. Follow the contracts below rather than copying its implementations verbatim.
 
----
+## Core Contract
 
-## Refactoring to Value Objects — Reducing 100 Lines
+A Value Object represents a domain concept whose identity does not matter. Two instances are interchangeable when all semantically defining values are equal.
 
-**Intent:** Replace primitive parameters with value objects to collapse scattered validation and formatting into the concept itself.
+A robust Value Object should provide:
 
-**How it works:** A domain aggregate with 5–8 primitive string/number fields typically has validation scattered across controllers, application services, and tests. Extracting each field into its own value object moves the invariant to the concept, making the aggregate's constructor trivial and removing 30–40% of the boilerplate.
+- **Value semantics:** equality depends on meaning, not allocation identity.
+- **Complete construction:** every public construction path returns a valid value or fails explicitly.
+- **Immutable observation:** callers cannot change the value through aliases or exposed internals.
+- **Cohesive behavior:** parsing, normalization, comparison, formatting, or operations live with the value when they use its knowledge.
+- **Stable representation:** persistence and transport mappings preserve meaning and absence without leaking mutable domain internals.
 
-**Before — primitive User:**
+Make Value Objects immutable from creation. If measured performance requires mutable storage, model it as an exclusively owned implementation detail rather than exposing a mutable Value Object contract.
+
+## When to Introduce One
+
+Use a Value Object when one or more signals are present:
+
+- The term exists in the Ubiquitous Language: `EmailAddress`, `Money`, `DateRange`, `CourseId`.
+- The value has intrinsic invariants, normalization, comparison, formatting, or operations.
+- Two same-typed primitives can be swapped accidentally, such as `UserId` and `CourseId`.
+- Validation or interpretation is duplicated across callers.
+- Several attributes form one conceptual whole.
+- An API becomes clearer by asking for a domain value instead of raw representation details.
+
+A Value Object can be useful even without validation. Semantic type safety and intention-revealing APIs may justify `UserId` over `string`.
+
+Do not introduce one merely because:
+
+- every primitive must be wrapped
+- a DTO groups transport fields but has no domain meaning
+- unrelated parameters often travel together
+- a type alias, enum, branded scalar, record, or discriminated union already provides sufficient guarantees
+- the rule depends on current user, time, tenant, repository state, or workflow rather than the value itself
+- the abstraction is speculative and has no stable name or behavior
+
+## Value Object vs. Related Types
+
+| Type | Distinguishing question |
+|---|---|
+| Entity | Must two instances with equal attributes still be distinguished over time? |
+| DTO | Is the shape primarily for transport between boundaries? |
+| Parameter Object | Are fields grouped for call convenience without shared domain semantics? |
+| Branded scalar | Is compile-time distinction enough, with no runtime behavior or validation? |
+| Enum or sum type | Is the concept only a closed set of alternatives? |
+| First-class collection | Does the collection own rules, regardless of whether the collection itself has value semantics? |
+
+The same concept can be an Entity in one Bounded Context and a Value Object in another. Let domain meaning decide, not the class shape.
+
+## Put Only Intrinsic Rules Inside
+
+Keep rules in the narrowest concept that owns them:
+
+| Rule | Owner |
+|---|---|
+| Parseable calendar date, rating from 0 to 5 | Value Object |
+| Rule involving Aggregate state | Aggregate Root |
+| Rule requiring an explicit policy, tenant, role, or current date | Aggregate or named policy/service |
+| Existence checks and workflow orchestration | Application Service |
+| Global uniqueness and concurrent allocation | Persistence constraint plus application handling |
+
+Do not hide ambient context in a Value Object constructor. A `BirthDate` can guarantee a real calendar date. Whether a person is old enough must use an explicit reference date and policy; otherwise loading the same stored date can change behavior as the clock advances.
+
+Use `ddd-best-practices` when deciding whether a rule belongs to a Value Object, Aggregate, policy, application service, or persistence constraint.
+
+## Construction, Parsing, and Normalization
+
+Enforce every intrinsic invariant through one canonical implementation shared by all public construction paths. The public API may use:
+
+- a constructor that throws for programmer-oriented domain construction
+- a named factory such as `EmailAddress.create(...)`
+- `parse(...)` or `tryParse(...)` for untrusted text
+- `Result<Value, ParseError>` when invalid input is expected control flow
+
+Normalize before validating when canonical representation is part of the concept:
+
 ```typescript
-// Validation duplicated in every caller:
-// controllers, use cases, factories, tests
-class User {
-  constructor(
-    private id: string,
-    private email: string,
-    private birthdate: Date | null
-  ) {
-    if (!email.includes("@")) throw new Error("invalid email");
-    // ... more validation scattered elsewhere
+class EmailAddress {
+  private constructor(private readonly canonical: string) {}
+
+  static parse(raw: string): Result<EmailAddress, InvalidEmailAddress> {
+    const trimmed = raw.trim();
+    const separator = trimmed.lastIndexOf("@");
+    const canonical = separator < 0
+      ? trimmed
+      : `${trimmed.slice(0, separator)}@${trimmed.slice(separator + 1).toLowerCase()}`;
+    if (!isSyntacticallyValidEmail(canonical)) {
+      return Result.err(new InvalidEmailAddress(raw));
+    }
+    return Result.ok(new EmailAddress(canonical));
+  }
+
+  equals(other: EmailAddress): boolean {
+    return this.canonical === other.canonical;
   }
 }
 ```
 
-**After — value object User:**
+This example normalizes only the domain part. Lowercasing the local part is a bounded-context/provider policy, not universally safe SMTP behavior. Decide explicitly whether any normalization changes meaning. Email provider allowlists, tenant policies, and global uniqueness are not email syntax and should not be hidden in a generic `EmailAddress`.
+
+Reject invalid runtime representations even in typed code:
+
+- `NaN`, positive/negative infinity, and overflow for numbers
+- `Invalid Date` (`!Number.isFinite(date.getTime())`) for JavaScript dates
+- malformed Unicode or unsupported normalization where relevant
+- impossible ranges such as end before start
+
+TypeScript types disappear at runtime. Parsing untrusted values still requires runtime checks.
+
+## Equality and Hashing
+
+Define equality from all and only the attributes that determine the value.
+
+An equality implementation must be:
+
+- reflexive: `a == a`
+- symmetric: `a == b` implies `b == a`
+- transitive: `a == b` and `b == c` imply `a == c`
+- stable while the values are observable
+- consistent with hashing: equal values produce equal hashes
+
+Use semantic comparison for each component:
+
+- strings after the concept's chosen normalization
+- dates by epoch or canonical date-only representation, not object reference
+- decimals by exact representation and scale policy
+- composite values by recursively comparing their defining components
+- collections according to domain order: sequence equality, set equality, or multiset equality
+
+Do not use JavaScript `===` for separately allocated `Date`, array, or object values. Do not use `constructor.name` as a domain type discriminator; minification and bundling can change it. Prefer explicit per-type equality or a base class deliberately restricted to safe scalar representations.
+
+Languages with hash-based collections require the matching hash contract (`hashCode`, `GetHashCode`, `__hash__`, etc.). Never override equality without reviewing hashing.
+
+## Deep Immutability and Aliasing
+
+`readonly`, `final`, and a read-only interface can still hold mutable objects. Protect invariants at both input and output boundaries:
+
+- Store immutable scalars where practical, such as epoch milliseconds or a date-only string.
+- Defensively copy arrays, dates, maps, sets, buffers, and mutable nested objects.
+- Keep collections private and expose iterators, immutable snapshots, or domain queries.
+- Freeze/copy nested data where runtime immutability matters; shallow freeze is not deep freeze.
+- Return a new value from transformation operations rather than mutating the receiver.
+
 ```typescript
-export class User {
+class DateRange {
+  private readonly startMs: number;
+  private readonly endMs: number;
+
+  constructor(start: Date, end: Date) {
+    const startMs = start.getTime();
+    const endMs = end.getTime();
+    if (!Number.isFinite(startMs) || !Number.isFinite(endMs) || endMs < startMs) {
+      throw new InvalidDateRange();
+    }
+    this.startMs = startMs;
+    this.endMs = endMs;
+  }
+
+  start(): Date {
+    return new Date(this.startMs);
+  }
+
+  equals(other: DateRange): boolean {
+    return this.startMs === other.startMs && this.endMs === other.endMs;
+  }
+}
+```
+
+The defensive copy returned by `start()` prevents callers from mutating internal state with `setDate()`.
+
+## Behavior and Domain Algebra
+
+Prefer asking the value for meaningful behavior over extracting primitives and deciding elsewhere:
+
+```typescript
+const total = subtotal.add(tax);
+if (period.overlaps(existingPeriod)) { /* ... */ }
+const normalized = phoneNumber.inInternationalFormat();
+```
+
+For operations, define:
+
+- compatibility rules, such as matching currencies or units
+- precision and rounding policy
+- overflow behavior
+- ordering and comparison semantics
+- whether the operation is closed over the type (`Money + Money -> Money`)
+
+Do not assume money can never be negative; debts, refunds, and adjustments may require signed values. Avoid binary floating point for exact decimal money unless the domain accepts its error model.
+
+## Composite Values
+
+A Value Object may contain several fields or other Value Objects when they form one value:
+
+```typescript
+class Address {
   constructor(
-    private readonly id: UserId,
-    private email: UserEmail,
-    private readonly birthdate: UserBirthdate | null
+    readonly street: Street,
+    readonly city: City,
+    readonly postalCode: PostalCode,
+    readonly country: CountryCode,
   ) {}
 
-  static create(id: string, email: string, birthdate: Date | null): User {
-    return new User(
-      new UserId(id),
-      new UserEmail(email),
-      birthdate !== null ? new UserBirthdate(birthdate) : null
-    );
-  }
-
-  static fromPrimitives(primitives: UserPrimitives): User {
-    return new User(
-      new UserId(primitives.id),
-      new UserEmail(primitives.email),
-      primitives.birthdate !== null ? new UserBirthdate(primitives.birthdate) : null
-    );
+  equals(other: Address): boolean {
+    return this.street.equals(other.street)
+      && this.city.equals(other.city)
+      && this.postalCode.equals(other.postalCode)
+      && this.country.equals(other.country);
   }
 }
 ```
 
-**Practical heuristic:** Count all the places that validate the same field. If it is more than one, extract a value object.
+Composition does not remove the need for deep immutability or explicit equality. If the object has a lifecycle and identity independent of these attributes, it is an Entity instead.
 
----
+## First-Class Collections
 
-## Value Objects with Domain Validation
+Introduce a first-class collection when membership, uniqueness, ordering, overlap, cardinality, or aggregation has domain meaning.
 
-**Intent:** Each value object encapsulates and self-validates its own invariants at construction time.
-
-**How it works:** Validation runs in the constructor. Invalid inputs fail fast with a domain-specific error. The VO also inherits from a base class (`StringValueObject`, `DateValueObject`) to share structural equality logic.
-
-**Example — UserEmail (TypeScript):**
 ```typescript
-export class UserEmail extends StringValueObject {
-  private readonly validEmailRegExp =
-    /^(?=.*[@](?:gmail\.com|hotmail\.com)$)[A-Za-z0-9!#$%&'*+/=?^_`{|}~-]+/;
+class JobExperiences {
+  private readonly items: ReadonlyArray<JobExperience>;
 
-  constructor(readonly value: string) {
-    super(value);
-    this.ensureIsValidEmail(value);
-  }
-
-  toPrimitives(): string {
-    return this.value;
-  }
-
-  private ensureIsValidEmail(value: string): void {
-    if (!this.validEmailRegExp.test(value)) {
-      throw new InvalidArgumentError(`<${value}> is not a valid email`);
-    }
-  }
-}
-```
-
-**Example — UserBirthdate with business rule (TypeScript):**
-```typescript
-export class UserBirthdate extends DateValueObject {
-  constructor(readonly value: Date) {
-    super(value);
-    this.ensureIsValidBirthdate(value);
-  }
-
-  private ensureIsValidBirthdate(value: Date): void {
-    const currentDate = new Date();
-    let ageInYears = currentDate.getFullYear() - value.getFullYear();
-
-    if (
-      currentDate.getMonth() < value.getMonth() ||
-      (currentDate.getMonth() === value.getMonth() &&
-        currentDate.getDate() < value.getDate())
-    ) {
-      ageInYears--;
-    }
-
-    if (ageInYears < 18 || ageInYears > 110) {
-      throw new InvalidArgumentError(`<${value.toString()}> is not a valid birthdate`);
-    }
-  }
-}
-```
-
-**Practical heuristic:** The value object's constructor is the only place where the invariant lives. If you find yourself validating the same thing outside the VO, move it in.
-
----
-
-## Optional Value Objects — Three Approaches
-
-**Intent:** Model fields that may legitimately be absent without spreading null checks through the codebase.
-
-**How it works:** The course shows three progressive approaches:
-
-### Approach 1 — Nullable field (simplest)
-```typescript
-class User {
-  constructor(
-    private readonly birthdate: UserBirthdate | null
-  ) {}
-
-  get birthdateValue(): Date | null {
-    return this.birthdate !== null ? this.birthdate.value : null;
-  }
-}
-```
-Use when absence is a valid, permanent state and callers rarely need to branch on it.
-
-### Approach 2 — Maybe/Option type
-```typescript
-// Wraps the optional value in a container that forces explicit handling
-type Maybe<T> = T | null;
-
-class User {
-  constructor(private readonly birthdate: Maybe<UserBirthdate>) {}
-
-  mapBirthdate<R>(fn: (bd: UserBirthdate) => R, fallback: R): R {
-    return this.birthdate !== null ? fn(this.birthdate) : fallback;
-  }
-}
-```
-Use when callers frequently need to branch on presence/absence — the `map` method forces them to handle both paths.
-
-### Approach 3 — Null Object pattern
-```typescript
-// Provides a default no-op implementation so callers never need to branch
-abstract class UserBirthdateBase {
-  abstract toPrimitives(): Date | null;
-  abstract isPresent(): boolean;
-}
-
-class UserBirthdate extends UserBirthdateBase {
-  constructor(readonly value: Date) { super(); }
-  toPrimitives(): Date { return this.value; }
-  isPresent(): boolean { return true; }
-}
-
-class NoUserBirthdate extends UserBirthdateBase {
-  toPrimitives(): null { return null; }
-  isPresent(): boolean { return false; }
-}
-```
-Use when callers would otherwise do many `if (birthdate !== null)` checks — the null object removes the branching entirely.
-
-**Practical heuristic:** Start with nullable fields. Introduce Maybe when you catch callers repeatedly branching. Introduce Null Object only when the branching is in many places and the default behavior is non-trivial.
-
----
-
-## Modeling Domain Exceptions via Value Objects
-
-**Intent:** Domain errors are first-class named concepts, not generic `Error` instances or string messages.
-
-**How it works:** Each error scenario that the domain can raise gets its own class. This makes error handling explicit, searchable, and testable. The course pairs this with value objects because VOs throw these domain errors from their constructors.
-
-**Example (TypeScript):**
-```typescript
-// Domain-specific error — not a generic Error("something went wrong")
-export class UserAlreadyExistError extends Error {
-  constructor(readonly email: string) {
-    super(`The user ${email} already exist`);
-  }
-}
-
-// Value object throws domain error, not a generic exception
-export class UserEmail extends StringValueObject {
-  constructor(readonly value: string) {
-    super(value);
-    if (!this.isValid(value)) {
-      throw new InvalidArgumentError(`<${value}> is not a valid email`);
-    }
-  }
-}
-```
-
-**Application layer usage:**
-```typescript
-async createUser(id: string, email: string): Promise<void> {
-  const existing = await this.repository.searchByEmail(new UserEmail(email));
-  if (existing) {
-    throw new UserAlreadyExistError(email); // named, catchable, loggable
-  }
-  // ...
-}
-```
-
-**Practical heuristic:** If you find yourself throwing `new Error("User already exists")` anywhere outside a dedicated error class, extract the error. The message and context belong to the error class constructor, not at the throw site.
-
----
-
-## Complex Value Objects
-
-**Intent:** A value object can compose multiple simpler value objects or contain richer behavioral logic beyond simple validation.
-
-**How it works:** The course covers value objects that contain multiple fields (e.g., `Address` with street, city, country), value objects that reference other VOs, and typed collections. A complex VO still obeys immutability — to change it, you produce a new instance.
-
-**Example — PhpDoc Admin with composite validation (PHP):**
-```php
-final readonly class Admin
-{
-    public function __construct(
-        private string $username,
-        private string $email,
-        private string $code
-    ) {
-        $usernameLength = strlen($username);
-
-        if ($usernameLength < 3) {
-            throw new InvalidArgumentException('Username must be at least 3 characters long');
-        }
-        if ($usernameLength > 20) {
-            throw new InvalidArgumentException('Username must be less than 20 characters long');
-        }
-    }
-}
-```
-
-**Typed collection pattern (TypeScript):**
-```typescript
-// A collection that enforces its own invariants
-class UserCollection {
-  private readonly items: ReadonlyArray<User>;
-
-  private constructor(items: ReadonlyArray<User>) {
+  private constructor(items: ReadonlyArray<JobExperience>) {
     this.items = Object.freeze([...items]);
   }
 
-  static of(items: User[]): UserCollection {
-    if (items.length === 0) {
-      throw new InvalidArgumentError("UserCollection cannot be empty");
-    }
-    const hasDuplicateIdentity = items.some((user, index) =>
-      items.findIndex((candidate) => candidate.id.equals(user.id)) !== index
-    );
-    if (hasDuplicateIdentity) {
-      throw new InvalidArgumentError("UserCollection cannot contain duplicate users");
-    }
-    return new UserCollection(items);
+  static create(items: ReadonlyArray<JobExperience>): JobExperiences {
+    ensureNoOverlappingRanges(items);
+    return new JobExperiences(items);
   }
 
-  add(user: User): UserCollection {
-    if (this.items.some((existing) => existing.id.equals(user.id))) {
-      throw new InvalidArgumentError("UserCollection cannot contain duplicate users");
-    }
-    return new UserCollection([...this.items, user]); // immutable — returns new instance
-  }
-
-  includes(userId: UserId): boolean {
-    return this.items.some((user) => user.id.equals(userId));
-  }
-
-  count(): number {
-    return this.items.length;
+  add(experience: JobExperience): JobExperiences {
+    return JobExperiences.create([...this.items, experience]);
   }
 }
 ```
 
-**Practical heuristic:** When a raw array has rules of its own (minimum size, uniqueness, ordering), extract a typed collection. The collection becomes a value object that owns those rules. Compare Entities by identity and Value Objects by explicit value equality; JavaScript `includes(new ValueObject(...))` compares object references and will not enforce domain uniqueness.
+Validate every construction path, including initial factories and update operations. Define open-ended range behavior rather than skipping validation. Require immutable `JobExperience` members; if members are mutable Entities, store immutable snapshots or keep the collection exclusively behind its Aggregate Root.
 
----
+A first-class collection is not automatically a Value Object. A collection of mutable Entities may be Aggregate-owned state or an immutable snapshot. Use Entity identity for Entity membership and value equality for Value Object membership. Do not expose mutable child Entities from an Aggregate merely because the array is read-only.
 
-## Value Objects and the Law of Demeter
+## Optional Values
 
-**Intent:** Value objects enable Demeter compliance by encapsulating display and transformation logic inside the concept.
+Choose the least powerful representation that preserves meaning:
 
-**How it works:** Without VOs, callers must chain through primitive fields to build representations. With VOs, callers send a message to the object and receive the result.
+| Representation | Use when |
+|---|---|
+| `T | null` | Absence is simple and one meaning is sufficient |
+| `Option<T>` / `Maybe<T>` | Repeated composition should force explicit handling |
+| Tagged union | Missing, unknown, not applicable, or withheld are distinct states |
+| Null Object | Absence has genuinely neutral, substitutable behavior under the same protocol |
 
-**Before (Demeter violation):**
-```python
-# Deep chain into internal structure
-f"{user.full_name.name.value} {user.full_name.last_name.value}'s products"
-```
+A real Option distinguishes only nullish absence, not falsiness:
 
-**After (Demeter compliant):**
-```python
-# User exposes only what callers need
-user.display_saved_products()
-```
-
-The product value object does the same:
-```python
-class Product:
-    def display_information(self):
-        return f"Product ID: {self.id}, Name: {self.name}, Price: {self.price}"
-```
-
-**Practical heuristic:** If a caller accesses `.value` on a VO more than once in the same expression, move that expression into the VO as a method.
-
----
-
----
-
-## EnumValueObject — Typed Enum Wrappers
-
-**Intent:** When a domain concept is a closed set of values (status, operator, category), wrap the enum in a value object to validate that only legal values can be constructed.
-
-**How it works:** `EnumValueObject<T>` extends `ValueObject<T>`. Its constructor receives the valid values list and throws if the given value is not in that list. Concrete classes add a `fromValue(string)` factory for deserialization and domain-specific helpers.
-
-**Example (from Criteria pattern):**
 ```typescript
-// src/Contexts/Shared/domain/criteria/FilterOperator.ts
-export enum Operator {
-  EQUAL = '=',
-  NOT_EQUAL = '!=',
-  GT = '>',
-  LT = '<',
-  CONTAINS = 'CONTAINS',
-  NOT_CONTAINS = 'NOT_CONTAINS'
-}
+type Option<T> =
+  | { readonly kind: "some"; readonly value: T }
+  | { readonly kind: "none" };
 
-export class FilterOperator extends EnumValueObject<Operator> {
-  constructor(value: Operator) {
-    super(value, Object.values(Operator));
-  }
-
-  static fromValue(value: string): FilterOperator {
-    for (const operatorValue of Object.values(Operator)) {
-      if (value === operatorValue.toString()) {
-        return new FilterOperator(operatorValue);
-      }
-    }
-    throw new InvalidArgumentError(`The filter operator ${value} is invalid`);
-  }
-
-  // Domain-specific helper encapsulated on the VO
-  public isPositive(): boolean {
-    return this.value !== Operator.NOT_EQUAL && this.value !== Operator.NOT_CONTAINS;
-  }
-
-  static equal() { return this.fromValue(Operator.EQUAL); }
-}
+const fromNullable = <T>(value: T | null | undefined): Option<T> =>
+  value === null || value === undefined
+    ? { kind: "none" }
+    : { kind: "some", value };
 ```
 
-**Practical heuristic:** Anywhere you see a string or number used as a discriminant (`if (status === 'active')`) is a candidate for `EnumValueObject`. The enum is the valid set; the VO is the validator and the domain-logic host.
+Values such as `0`, `false`, and `""` remain present. Do not use `if (!value)` to detect absence.
 
----
+Use Null Object only when substitutability is honest. Never invent a birthday, identifier, or monetary value to stand for missing data. Preserve absence through equality, serialization, and reconstitution.
 
-## Nullable<T> — Explicit Optional Type
+## Persistence and Boundary Mapping
 
-**Intent:** Make optionality visible in the type signature using a shared utility type rather than raw `T | null | undefined`.
+Domain values and serialized representations have different responsibilities:
 
-**Example:**
-```typescript
-// src/Contexts/Shared/domain/Nullable.ts
-export type Nullable<T> = T | null | undefined;
+- Delivery DTOs and messages normally carry JSON-safe primitives.
+- Application/domain boundaries convert primitives into domain values deliberately.
+- Domain APIs may accept Value Objects when that makes invalid calls impossible.
+- Infrastructure maps storage values without exposing public mutable fields.
+- Value Objects normally do not have repositories; they persist as parts of Entities or Aggregates.
 
-// Repository return — caller must handle absence explicitly
-async findById(id: CourseId): Promise<Nullable<Course>>;
-```
+Use explicit representations for dates and decimals:
 
-**Practical heuristic:** Prefer `Nullable<T>` over `T | null` for domain return types. It signals "this is intentionally optional" and makes it searchable when you need to tighten optionality later.
+- `YYYY-MM-DD` for a date without time or timezone
+- ISO instant or epoch for an instant
+- integer minor units plus currency, or an exact decimal type, for money
 
----
+Do not call a structure "primitives" if it contains `Date`, `Maybe`, or domain classes. Ensure JSON round trips preserve the type's meaning.
 
-## Related Skills
+Creation and reconstitution may need different paths when creation emits events or historical data predates current validation. Prefer a mapper when public `toPrimitives()` methods would weaken encapsulation. Translate equivalent-looking values across Bounded Contexts instead of sharing model classes by default.
 
-- `oop-best-practices` — core value object principles and basic patterns
-- `simple-design-rules` — Rule 3 (no duplication) is directly solved by value objects centralizing validation
-- `oop-good-practices-examples` — Tell Don't Ask, Demeter, named constructors pair directly with VO patterns
+## Construction Failures and Domain Errors
+
+Choose the failure shape by caller needs:
+
+- Throw a typed domain error when invalid construction is exceptional in trusted domain code.
+- Return `Result`/`Either` from parsers when invalid external input is expected.
+- Use structured error details when callers map, recover, or display specific failures.
+- Use a simple assertion/error for programmer-only impossible states when no recovery contract exists.
+
+Do not create a dedicated class for every throw automatically. Do not enforce global uniqueness with only `searchByEmail` followed by `save`; concurrent requests can race. Back uniqueness with a persistence constraint and translate the collision.
+
+Use `ddd-best-practices` for the full domain error taxonomy and boundary translation guidance.
+
+## Testing Contract
+
+Test the behaviors the Value Object actually exposes: construction boundaries, semantic equality, normalization, immutable observation, operations, hashing, and serialization only when each is part of its contract. Use deterministic fixtures and explicit policy inputs.
+
+Use `tdd-best-practices` for the complete Value Object test matrix, property-based test guidance, and deterministic fixture strategy.
+
+## Safe Evolution
+
+Introduce Value Objects incrementally beside primitive APIs, migrate one boundary at a time, preserve serialization, and remove duplicated validation only after feedback is green.
+
+Use `refactoring-best-practices` for the complete safe migration sequence.
+
+## TypeScript-Specific Guardrails
+
+- `readonly` is shallow; copy mutable values and collections.
+- Avoid a generic equality base for `Date`, arrays, objects, and composites unless it defines semantic comparison explicitly.
+- Avoid `constructor.name` as a stable type identifier.
+- Structural typing may make two wrappers assignable; use private fields, brands, or opaque types when distinction matters.
+- Test transpilation with SWC/Babel does not perform semantic typechecking; run `tsc --noEmit` separately.
+- Inherited static factories can accidentally return the base class; test the concrete return type or prefer explicit factories.
+- Keep localized display formatting separate from stable machine serialization.
+- Redact secrets and sensitive values from `toString()`, logs, and error messages.
+
+## Course Lessons to Retain
+
+The course demonstrates these useful progressions:
+
+- Move duplicated email and identifier knowledge out of `User` and application services.
+- Prefer Tell Don't Ask by moving value-specific decisions to the value.
+- Extract a policy when behavior gains context or an independent reason to change.
+- Introduce composite values and collection objects when rules span several components.
+- Use Object Mothers to keep valid defaults readable while overriding relevant values.
+- Model domain failures with stable names when callers need to distinguish them.
+
+## Course Examples Not to Copy
+
+- Equality implemented as `constructor.name` plus `===`.
+- A mutable `Date` stored behind `readonly`.
+- Age eligibility hidden behind `new Date()` in a birthdate constructor.
+- `Maybe.some()` or `map()` treating `0`, `false`, or `""` as absent.
+- A Null Object that substitutes a real birthday for missing data.
+- Public mutable arrays or collection constructors that bypass invariants.
+- Open-ended date ranges that skip overlap checks.
+- "Primitive" persistence shapes containing `Date`, `Maybe`, or domain classes.
+- Uniqueness enforced only by check-then-save.
+- Unseeded Faker/`Math.random` in fixtures that must be reproducible.
+- Assuming the course commit history demonstrates strict Red-Green-Refactor.
