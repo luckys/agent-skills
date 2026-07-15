@@ -1,6 +1,6 @@
 ---
 name: ddd-best-practices
-description: Domain-Driven Design guidance for modeling complex domains. Use when designing Bounded Contexts or Subdomains, discovering Aggregate boundaries from invariants and transactions, defining Aggregate Roots, splitting oversized Aggregates, choosing between Entities, Value Objects, and Domain Services, coordinating cross-Aggregate consistency, applying Context Mapping patterns, implementing CQRS or Event Sourcing, building a Ubiquitous Language, applying Hexagonal Architecture, or reviewing whether domain logic leaks into infrastructure or application layers.
+description: Domain-Driven Design guidance for modeling complex domains. Use when designing Bounded Contexts or Subdomains, discovering Aggregate boundaries from invariants and transactions, defining Aggregate Roots, designing repository contracts or choosing Repository vs DAO/query service/gateway, splitting oversized Aggregates, choosing between Entities, Value Objects, and Domain Services, coordinating cross-Aggregate consistency, applying Context Mapping patterns, implementing CQRS or Event Sourcing, building a Ubiquitous Language, applying Hexagonal Architecture, or reviewing whether domain logic leaks into infrastructure or application layers.
 license: MIT
 metadata:
   author: luckys
@@ -71,6 +71,7 @@ Name events in the past tense: `OrderPlaced`, `PaymentFailed`, `UserRegistered`.
 
 ### Repository
 One Repository per Aggregate Root. Never expose a Repository for child entities within an Aggregate.
+Return complete Aggregates for invariant-bearing work; use dedicated query models for reports and partial projections, and gateways for external capabilities.
 
 ## Warning Signs
 
@@ -80,6 +81,7 @@ One Repository per Aggregate Root. Never expose a Repository for child entities 
 - Ubiquitous Language drift: code uses different terms from the domain experts.
 - Application Service doing domain logic instead of orchestrating domain objects.
 - Repository returning arbitrary queries instead of meaningful collection operations.
+- Repository exposing ORM/query-builder types, interpolated SQL, or transaction control.
 - One transaction routinely modifies multiple Aggregate Roots without a documented invariant.
 - Public setters or mutable child collections let callers bypass the Aggregate Root.
 - Repository access exists for a child Entity inside an Aggregate.
@@ -89,6 +91,7 @@ One Repository per Aggregate Root. Never expose a Repository for child entities 
 ## References
 
 - Read `references/aggregates.md` for Aggregate discovery, boundary signals, rule ownership, creation vs. reconstitution, concurrency, cross-Aggregate coordination, persistence, and review checklists.
+- Read `references/repositories.md` for repository semantics, contract ownership, Repository vs DAO/query service/gateway, absence, mapping, transactions, caching, pagination, testing, and legacy migration.
 - Read `references/tactical-patterns.md` for Entities, Value Objects, Aggregates, Domain Services, Domain Events, Repositories, Factories.
 - Read `references/strategic-design.md` for Subdomains (Core/Supporting/Generic), Bounded Contexts, and Ubiquitous Language.
 - Read `references/context-mapping.md` for Context Map patterns: Partnership, Shared Kernel, Customer-Supplier, Conformist, ACL, Open Host Service, Published Language.
@@ -121,3 +124,4 @@ This skill is synthesized from:
 - *Hexagonal Architecture Explained* by Alistair Cockburn & Juan Manuel Garrido de Paz
 - *DDD in PHP* (community resource)
 - [CodelyTV Aggregates course](https://github.com/CodelyTV/aggregates-course)
+- [CodelyTV Repository Pattern course](https://github.com/CodelyTV/repository_pattern-course) (including production counterexamples)

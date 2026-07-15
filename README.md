@@ -72,6 +72,7 @@ Domain-Driven Design guidance for modeling complex domains.
 - Aggregates, Entities, Value Objects, Domain Services, Factories
 - Aggregate discovery from invariants, lifecycle, cardinality, contention, and transaction boundaries
 - Cross-Aggregate consistency, optimistic concurrency, creation vs. reconstitution
+- Repository contracts, Repository vs DAO/query service/gateway, mapping, absence, and adapter testing
 - Context Mapping (ACL, Open Host Service, Partnership, Shared Kernel, and more)
 - CQRS, Event Sourcing, Event Storming, Saga, Outbox/Inbox
 - Hexagonal Architecture (Ports & Adapters)
@@ -174,7 +175,7 @@ Skills are synthesized from:
 - *Working Effectively with Legacy Code* — Michael Feathers
 - *Practical Object-Oriented Design in Ruby* — Sandi Metz
 - *Implementation Patterns* — Kent Beck
-- CodelyTV repositories (TypeScript DDD skeleton, hexagonal architecture examples, Aggregates and Value Objects courses)
+- CodelyTV repositories (TypeScript DDD skeleton, hexagonal architecture examples, Aggregates, Value Objects, and Repository Pattern courses)
 - *Mostly Adequate Guide to Functional Programming* — Brian Lonsdorf (Professor Frisby)
 - *Domain Modeling Made Functional* — Scott Wlaschin
 - *Grokking Simplicity* — Eric Normand

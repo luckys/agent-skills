@@ -174,6 +174,8 @@ The Repository gives four advantages:
 
 ### Repository: Concrete Implementation Strategies
 
+For the complete decision guide, including Repository vs DAO/query service/gateway, transaction propagation, concurrency, caching, pagination, and testing, read `repositories.md`.
+
 **Aggregate-only repositories:** Only Aggregate Roots get their own Repository. Internal entities and value objects within an Aggregate are loaded by traversal from the root, never by a separate Repository query. This enforces the Aggregate boundary and prevents bypassing invariants.
 
 **The interface lives in the domain, the implementation in infrastructure:**
@@ -220,7 +222,7 @@ export class PostgresCourseRepository
 }
 ```
 
-**`search` vs `find` convention:** Use `search` (returns `T | null`) when absence is a valid result the caller must handle. Use `find` (throws a typed domain error) when the object is expected to exist and its absence signals a domain invariant violation.
+**`search` and required existence:** Let the repository `search` return `T | null` (or `Option<T>`). When a use case requires existence, an application/domain finder translates absence into a typed error. This keeps persistence lookup separate from the caller's business meaning.
 
 ```typescript
 // domain/UserRepository.ts
@@ -280,7 +282,7 @@ const repository = new InMemoryUserRepository();
 const finder = new UserFinder(repository);
 ```
 
-**Practical heuristic:** If your application layer imports anything from an ORM or database driver, the Repository abstraction has leaked. The application layer should only know the domain interface.
+**Practical heuristic:** If your application layer imports anything from an ORM or database driver, the Repository abstraction has leaked. The application layer should only know the domain interface. Query values must still be parameterized in the adapter; introducing a Repository does not make string-built SQL safe.
 
 ### Outbox and Inbox Patterns with Domain Events
 

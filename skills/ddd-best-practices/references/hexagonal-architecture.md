@@ -37,9 +37,9 @@ Architectural pattern by Alistair Cockburn that isolates the application core fr
 - **Primary (driving) port:** A port with one or more provided interfaces, used by driving actors (UI, tests, batch scripts) to make requests of the app. The app implements this interface.
 - **Secondary (driven) port:** A port with one or more required interfaces, used by the app to make requests of driven actors (databases, email services, external APIs). Driven actors implement this interface.
 
-**Key rule:** Name every port starting with "For" followed by a verb ending in "-ing" that describes the business intention. The app should have no idea what technology sits beyond the port.
+**Naming convention:** Intention-oriented names beginning with "For" and a verb ending in "-ing" can make the conversation explicit. The app should have no idea what technology sits beyond the port. This convention is optional: established domain patterns such as `UserRepository` are valid when the port intentionally models a collection of Aggregate Roots.
 
-**Common mistake:** Creating a driven port named after a domain concept (e.g., `UserRepository`) instead of after the external system conversation (e.g., `ForPersistingUsers`). A port represents the conversation with an external system, not the domain concept itself.
+**Common mistake:** Naming a driven port after a technology (`PostgresUsers`, `SendGridClient`) instead of the capability the core requires. Use `UserRepository` for Aggregate collection semantics, `ForPersistingUsers` when the conversational naming style is clearer, and `EmailSenderGateway` for an external capability.
 
 ```
 // Pseudocode — type-declared language style

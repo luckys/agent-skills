@@ -98,6 +98,8 @@ Use when a complex subsystem needs a simplified interface for callers who don't 
 
 Use when you want to decouple business logic from data access and treat a collection of objects as if it were in memory.
 
+Use `ddd-best-practices` when the main decision is Aggregate repository semantics, contract ownership, or Repository vs DAO/query service/gateway.
+
 ## Warning Signs
 
 - The pattern vocabulary dominates the domain language.
@@ -127,6 +129,7 @@ Use when you want to decouple business logic from data access and treat a collec
 - Use `oop-best-practices` for everyday code quality choices.
 - Use `refactoring-best-practices` when applying a pattern inside risky existing code.
 - Use `rest-api-best-practices` when applying patterns at the HTTP API boundary (Adapter, DTO, Result, Repository).
+- Use `ddd-best-practices` for Aggregate-oriented repository contracts and persistence boundaries.
 
 ## Source Influences
 

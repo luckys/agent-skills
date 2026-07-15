@@ -32,7 +32,7 @@ Practical infrastructure patterns for layered (hexagonal/DDD) applications. Each
 
 ## Core Principles
 
-- **Domain contracts first** — define `EventBus`, `Cache`, `Repository` interfaces in domain; implement them in infrastructure.
+- **Core contracts first** — define required ports in the domain or application core; implement adapters in infrastructure. DDD owns Repository semantics; infrastructure owns mapping, transactions, locking, caching, and Outbox mechanics.
 - **Transactions wrap use cases, not repositories** — repositories stay unaware of transactions; the use case or a decorator manages the boundary.
 - **Cache is a patch** — add it only when you have a measured performance problem. Remove it when the root cause is fixed.
 - **Views abstract queries, not business logic** — a view is a saved SELECT, not a substitute for a domain model.

@@ -110,11 +110,14 @@ Do not call a helper such as `shouldSave(expected)` during Arrange if that helpe
 | Value Object unit | intrinsic validity and value equality |
 | Aggregate unit | invariants, transitions, child ownership, recorded facts |
 | Application unit | loading, orchestration, save intent, message handoff |
-| Repository integration | mapping, reconstitution, version checks, constraints |
+| Shared repository contract | collection behavior common to every implementation |
+| Repository integration | mapping, reconstitution, version checks, constraints, transaction propagation |
 | Outbox integration | state and outgoing message commit atomically |
 | API/acceptance | boundary translation and user-visible capability |
 
 Do not mock a database in a test named as repository integration. Use the real database engine or a faithful disposable instance for SQL constraints, transactions, and isolation behavior.
+
+Run shared contract cases against in-memory and production implementations only for semantics they truly share, such as save/search round trips and absence. Keep SQL mapping, rollback, locking, indexes, and database constraints in adapter-specific integration tests. A fake is not a substitute for the real engine.
 
 ## Test Collection Semantics by Value
 

@@ -41,7 +41,14 @@ export enum Operator {
 }
 
 export class FilterOperator {
-  constructor(public readonly value: Operator) {}
+  constructor(public readonly value: Operator) {
+    if (!Object.values(Operator).includes(value)) {
+      throw new Error(`Unsupported filter operator: ${value}`);
+    }
+  }
+
+  isContains(): boolean { return this.value === Operator.CONTAINS; }
+  isNotContains(): boolean { return this.value === Operator.NOT_CONTAINS; }
 }
 
 // Filter.ts
@@ -68,9 +75,12 @@ export class Filter {
   ) {}
 
   static fromPrimitives(field: string, operator: string, value: string): Filter {
+    const parsedOperator = Operator[operator as keyof typeof Operator];
+    if (parsedOperator === undefined) throw new Error(`Unsupported filter operator: ${operator}`);
+
     return new Filter(
       new FilterField(field),
-      new FilterOperator(Operator[operator as keyof typeof Operator]),
+      new FilterOperator(parsedOperator),
       new FilterValue(value),
     );
   }
@@ -126,6 +136,12 @@ export class Criteria {
     if (pageNumber !== null && pageSize === null) {
       throw new Error("Page size is required when page number is defined");
     }
+    if (pageSize !== null && (!Number.isInteger(pageSize) || pageSize < 1 || pageSize > 100)) {
+      throw new Error("Page size must be an integer between 1 and 100");
+    }
+    if (pageNumber !== null && (!Number.isInteger(pageNumber) || pageNumber < 0)) {
+      throw new Error("Page number must be a non-negative integer");
+    }
   }
 
   static fromPrimitives(
@@ -165,33 +181,58 @@ export class Criteria {
 
 ```typescript
 // infrastructure/criteria/CriteriaToSqlConverter.ts
+type SqlQuery = { text: string; params: unknown[] };
+
+interface SqlAllowList {
+  fields(fields: string[]): string;
+  field(field: string): string;
+  table(table: string): string;
+  operator(operator: Operator): string;
+  direction(direction: OrderTypes): string;
+}
+
 export class CriteriaToSqlConverter {
-  convert(fieldsToSelect: string[], tableName: string, criteria: Criteria): string {
-    let query = `SELECT ${fieldsToSelect.join(", ")} FROM ${tableName}`;
+  constructor(private readonly allowed: SqlAllowList) {}
+
+  convert(fieldsToSelect: string[], tableName: string, criteria: Criteria): SqlQuery {
+    const params: unknown[] = [];
+    let query = `SELECT ${this.allowed.fields(fieldsToSelect)} FROM ${this.allowed.table(tableName)}`;
 
     if (criteria.hasFilters()) {
       query += " WHERE ";
-      const conditions = criteria.filters.value.map((filter) =>
-        `${filter.field.value} ${filter.operator.value} '${filter.value.value}'`
-      );
+      const conditions = criteria.filters.value.map((filter) => {
+        const field = this.allowed.field(filter.field.value);
+        const operator = this.allowed.operator(filter.operator.value);
+        const value = filter.operator.isContains() || filter.operator.isNotContains()
+          ? `%${filter.value.value}%`
+          : filter.value.value;
+        params.push(value);
+        return `${field} ${operator} $${params.length}`;
+      });
       query += conditions.join(" AND ");
     }
 
     if (criteria.hasOrder()) {
-      query += ` ORDER BY ${criteria.order.orderBy.value} ${criteria.order.orderType.value}`;
+      const field = this.allowed.field(criteria.order.orderBy.value);
+      const direction = this.allowed.direction(criteria.order.orderType.value);
+      query += ` ORDER BY ${field} ${direction}`;
     }
 
     if (criteria.pageSize !== null) {
-      query += ` LIMIT ${criteria.pageSize}`;
+      params.push(criteria.pageSize);
+      query += ` LIMIT $${params.length}`;
       if (criteria.pageNumber !== null) {
-        query += ` OFFSET ${criteria.pageSize * criteria.pageNumber}`;
+        params.push(criteria.pageSize * criteria.pageNumber);
+        query += ` OFFSET $${params.length}`;
       }
     }
 
-    return `${query};`;
+    return { text: `${query};`, params };
   }
 }
 ```
+
+`SqlAllowList` must reject unknown identifiers and map domain operators such as `CONTAINS`/`NOT_CONTAINS` to the database dialect's `LIKE`/`NOT LIKE`. If `%` and `_` should be literal characters, escape them and declare the SQL escape character explicitly.
 
 **Practical heuristic:** The converter is an infrastructure concern — it belongs next to the repository implementation, not in the domain. If you need to support Elasticsearch or MongoDB later, you write a new converter, not a new domain interface.
 
@@ -219,12 +260,12 @@ export class PostgresCourseRepository implements CourseRepository {
   ) {}
 
   async matching(criteria: Criteria): Promise<Course[]> {
-    const sql = this.converter.convert(
+    const query = this.converter.convert(
       ["id", "name", "summary", "categories", "published_at"],
       "mooc.courses",
       criteria,
     );
-    const rows = await this.connection.query(sql);
+    const rows = await this.connection.query(query.text, query.params);
     return rows.map(this.toAggregate);
   }
 }
@@ -244,12 +285,13 @@ export class PostgresCourseRepository implements CourseRepository {
 // app/CoursesGetController.ts
 export class CoursesGetController {
   async handle(req: Request): Promise<Response> {
+    const input = criteriaRequestSchema.parse(req.query); // validates JSON shape and allow-lists
     const criteria = Criteria.fromPrimitives(
-      req.query.filters   ? JSON.parse(req.query.filters)   : [],
-      req.query.order_by  ?? null,
-      req.query.order     ?? null,
-      req.query.page_size ? Number(req.query.page_size)     : null,
-      req.query.page      ? Number(req.query.page)          : null,
+      input.filters,
+      input.orderBy,
+      input.order,
+      input.pageSize,
+      input.pageNumber,
     );
     const courses = await this.repository.matching(criteria);
     return Response.json(courses.map((c) => c.toPrimitives()));
@@ -257,7 +299,7 @@ export class CoursesGetController {
 }
 ```
 
-**Practical heuristic:** Parse and validate `Criteria` at the controller boundary. Treat it as a Value Object — invalid combinations (page number without page size) should throw immediately, not silently produce wrong results.
+**Practical heuristic:** Parse and validate `Criteria` at the controller boundary. Validate JSON shape, recognized fields/operators, integer ranges, and a maximum page size before constructing the Value Object. Translate validation failures into a controlled client error rather than a database error.
 
 ---
 
@@ -279,7 +321,7 @@ Two pagination strategies from the course:
 
 - **Offset pagination** (`pageSize` + `pageNumber`): Simple, works with any storage. Suffers from page drift on high-write collections (rows inserted between page 1 and page 2 fetches cause items to shift). Add `pageSize` and `pageNumber` to `Criteria`.
 
-- **Pointer/cursor pagination** (`pageSize` + `lastId`): Stable under concurrent writes. Uses the last seen ID or timestamp as a bookmark instead of an offset. More complex to implement but required for live feeds.
+- **Pointer/cursor pagination** (`pageSize` + cursor): Avoids offset drift when the cursor encodes every field in a stable total order. A timestamp alone is insufficient when values can tie; use a deterministic tie-breaker such as `(publishedAt, id)`.
 
 **Example (offset pagination in Criteria):**
 ```typescript
@@ -292,93 +334,36 @@ const criteria = Criteria.fromPrimitives(
 );
 ```
 
-**Cursor/pointer pagination — actual implementation from the CodelyTV course (`04-paginate_criteria/3-add_pointer_pagination`):**
+**Cursor/pointer pagination — production correction to the course's single-field example:**
 
-The cursor variant replaces `pageNumber` with a `cursor: string | null` field. The cursor is the last-seen value of the `orderBy` field (e.g., a timestamp or UUID). The converter emits `WHERE orderBy < cursor` instead of `OFFSET`, making the query stable under concurrent writes and independent of row count.
+The simplified course variant replaces `pageNumber` with a `cursor: string | null` field and emits `WHERE orderBy < cursor` instead of `OFFSET`. In production, encode and validate all ordered values in the cursor, bind them as parameters, and include a unique tie-breaker. The shortened example below focuses on safe conversion; cursor encoding belongs at the delivery boundary.
 
-```typescript
-// Criteria.ts — cursor variant
-export class Criteria {
-  constructor(
-    public readonly filters: Filters,
-    public readonly order: Order,
-    public readonly pageSize: number | null,
-    public readonly cursor: string | null,  // replaces pageNumber
-  ) {
-    if (cursor !== null && pageSize === null) {
-      throw new Error("Page size is required when cursor is defined");
-    }
-    if (cursor !== null && order.isNone()) {
-      throw new Error("Order is required when cursor is defined");
-    }
-  }
-
-  static fromPrimitives(
-    filters: FiltersPrimitives[],
-    orderBy: string | null,
-    orderType: string | null,
-    pageSize: number | null,
-    cursor: string | null,
-  ): Criteria {
-    return new Criteria(
-      Filters.fromPrimitives(filters),
-      Order.fromPrimitives(orderBy, orderType),
-      pageSize,
-      cursor,
-    );
-  }
-}
-
-// CriteriaToSqlConverter.ts — cursor branch
-export class CriteriaToSqlConverter {
-  convert(fieldsToSelect: string[], tableName: string, criteria: Criteria): string {
-    let query = `SELECT ${fieldsToSelect.join(", ")} FROM ${tableName}`;
-
-    if (criteria.hasFilters()) {
-      query = query.concat(" WHERE ");
-      const whereQuery = criteria.filters.value.map((f) => this.generateWhereQuery(f));
-      query = query.concat(whereQuery.join(" AND "));
-    }
-
-    // Cursor pagination: WHERE orderByField < cursorValue (no OFFSET)
-    if (criteria.cursor !== null) {
-      query = query.concat(query.includes("WHERE") ? " AND " : " WHERE ");
-      query = query.concat(`${criteria.order.orderBy.value} < '${criteria.cursor}'`);
-    }
-
-    if (criteria.hasOrder()) {
-      query = query.concat(
-        ` ORDER BY ${criteria.order.orderBy.value} ${criteria.order.orderType.value}`,
-      );
-    }
-
-    if (criteria.pageSize !== null) {
-      query = query.concat(` LIMIT ${criteria.pageSize}`);
-    }
-
-    return `${query};`;
-  }
-
-  private generateWhereQuery(filter: Filter): string {
-    if (filter.operator.isContains()) {
-      return `${filter.field.value} LIKE '%${filter.value.value}%'`;
-    }
-    if (filter.operator.isNotContains()) {
-      return `${filter.field.value} NOT LIKE '%${filter.value.value}%'`;
-    }
-    return `${filter.field.value} ${filter.operator.value} '${filter.value.value}'`;
-  }
-}
+```sql
+-- PostgreSQL, descending compound cursor (all values are bound parameters)
+SELECT id, name, published_at
+FROM courses
+WHERE (published_at, id) < ($1, $2)
+ORDER BY published_at DESC, id DESC
+LIMIT $3;
 ```
 
-**Client usage — reading the next page:**
-```typescript
-// First page: no cursor
-const page1 = Criteria.fromPrimitives([], "created_at", "DESC", 20, null);
+The cursor should encode both `$1` and `$2`; the delivery boundary decodes and validates it before constructing the Criteria. For ascending order, reverse the comparison consistently. Other databases may require the equivalent expanded predicate: `published_at < $1 OR (published_at = $1 AND id < $2)`.
 
-// Next page: cursor = last item's created_at from page 1
-const lastSeenCreatedAt = results[results.length - 1].createdAt;
-const page2 = Criteria.fromPrimitives([], "created_at", "DESC", 20, lastSeenCreatedAt);
+**Client usage — reading the next page (pseudocode; names depend on the delivery adapter):**
+```text
+// First page: no cursor
+const page1 = CompoundCursorCriteria.descending(
+  [], ["published_at", "id"], 20, null,
+);
+
+// Next page: cursor includes every ordered field.
+const last = results.at(-1);
+if (last !== undefined) {
+  const cursor = encodeAndSignCursor({ publishedAt: last.publishedAt, id: last.id });
+  const page2 = CompoundCursorCriteria.descending(
+    [], ["published_at", "id"], 20, cursor,
+  );
+}
 ```
 
 **Practical heuristic:** Use offset pagination by default. Switch to cursor pagination only when the collection is large and high-write, or when "infinite scroll" UX requires stable results between fetches. Cursor pagination requires a mandatory `orderBy` — enforce this at construction time (as the course does).
@@ -410,7 +395,7 @@ it("filters courses by status", async () => {
 });
 ```
 
-**Practical heuristic:** Integration-test the converter against a real database for at least one representative Criteria shape. Unit-test the in-memory implementation for all edge cases — it is faster and covers the domain logic without needing a DB.
+**Practical heuristic:** Integration-test every supported operator and pagination strategy against the real database, including injection attempts and tied cursor fields. Use an in-memory implementation for fast application tests, but do not treat it as proof of SQL conversion, collation, null ordering, constraints, or transaction behavior.
 
 ---
 

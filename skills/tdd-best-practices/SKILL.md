@@ -1,6 +1,6 @@
 ---
 name: tdd-best-practices
-description: Test-Driven Development guidance. Use when writing tests before implementation, applying Red-Green-Refactor, testing Value Object contracts or DDD Aggregates and invariants, choosing between test doubles (mock vs stub vs fake), deciding test granularity (unit vs integration vs acceptance), practicing outside-in or inside-out TDD, reviewing test suite quality, or diagnosing why a test suite is slow, brittle, or hard to maintain.
+description: Test-Driven Development guidance. Use when writing tests before implementation, applying Red-Green-Refactor, testing Value Object contracts, DDD Aggregates, repository contracts or persistence adapters, choosing between test doubles (mock vs stub vs fake), deciding test granularity (unit vs integration vs acceptance), practicing outside-in or inside-out TDD, reviewing test suite quality, or diagnosing why a test suite is slow, brittle, or hard to maintain.
 license: MIT
 metadata:
   author: luckys
@@ -90,7 +90,7 @@ The design is too coupled. A class that is hard to test is a design problem, not
 - Read `references/tdd-anti-patterns.md` for James Carr's 15 anti-patterns, Ian Cooper's "TDD, Where Did It All Go Wrong" insights, and recovery strategies.
 - Read `references/tdd-language-examples.md` for Red-Green-Refactor walkthroughs in TypeScript, Java, Python, C#, Ruby, and PHP with their respective test frameworks.
 - Read `references/value-object-testing.md` for semantic equality, invariant boundaries, deep immutability, normalization, optionality, serialization, and property-based Value Object tests.
-- Read `references/aggregate-testing.md` for invariant-first Aggregate tests, including atomic failures, deterministic Mothers, collection equality, and concurrency integration tests.
+- Read `references/aggregate-testing.md` for invariant-first Aggregate tests, repository contract and adapter tests, including atomic failures, deterministic Mothers, collection equality, transaction propagation, and concurrency integration tests.
 
 ## Related Skills
 
@@ -112,3 +112,4 @@ This skill is synthesized from:
 - Dan North — "Introducing BDD"
 - [CodelyTV Aggregates course](https://github.com/CodelyTV/aggregates-course) (including testing counterexamples)
 - [CodelyTV Value Objects course](https://github.com/CodelyTV/value_objects-course) (including testing and TypeScript counterexamples)
+- [CodelyTV Repository Pattern course](https://github.com/CodelyTV/repository_pattern-course) (including repository-double and integration-test counterexamples)

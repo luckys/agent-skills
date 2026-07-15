@@ -1,6 +1,6 @@
 ---
 name: refactoring-best-practices
-description: Safe refactoring guidance for legacy and existing codebases. Use when improving design without changing behavior, creating seams around hard dependencies, adding characterization tests, splitting large classes or methods, introducing value objects, replacing conditionals, or incrementally evolving object-oriented code under risk.
+description: Safe refactoring guidance for legacy and existing codebases. Use when improving design without changing behavior, creating seams around hard dependencies, extracting a repository from direct SQL/ORM access, adding characterization tests, splitting large classes or methods, introducing value objects, replacing conditionals, or incrementally evolving object-oriented code under risk.
 license: MIT
 metadata:
   author: luckys
@@ -91,7 +91,7 @@ Use this skill when the main challenge is changing existing code safely.
 
 - Use `oop-best-practices` for everyday new code decisions.
 - Use `design-patterns-best-practices` when the main issue is choosing an object collaboration pattern.
-- Use `ddd-best-practices` when moving invariants, splitting a God Aggregate, introducing a root, or changing a consistency boundary.
+- Use `ddd-best-practices` when moving invariants, splitting a God Aggregate, introducing a root, changing a consistency boundary, or shaping a domain Repository extracted from legacy persistence.
 
 ## Source Influences
 
@@ -103,3 +103,4 @@ This skill is synthesized from ideas emphasized in:
 - Fran Iglesias's `Object Calisthenics` series
 - [CodelyTV Aggregates course](https://github.com/CodelyTV/aggregates-course) (temporal coupling and Aggregate evolution)
 - [CodelyTV Value Objects course](https://github.com/CodelyTV/value_objects-course) (incremental primitive-to-domain-value refactoring)
+- [CodelyTV Repository Pattern course](https://github.com/CodelyTV/repository_pattern-course) (incremental direct-SQL-to-port refactoring)
