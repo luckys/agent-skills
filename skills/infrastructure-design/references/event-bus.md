@@ -1,6 +1,6 @@
 # Event Delivery Infrastructure
 
-Sources: CodelyTV event-bus courses, [infrastructure_design-eventbus-db-course](https://github.com/CodelyTV/infrastructure_design-eventbus-db-course), [infrastructure_design-eventbus-rabbitmq-course](https://github.com/CodelyTV/infrastructure_design-eventbus-rabbitmq-course), [infrastructure_design-eventbus-aws-course](https://github.com/CodelyTV/infrastructure_design-eventbus-aws-course), [domain_modeling-domain_events-course](https://github.com/CodelyTV/domain_modeling-domain_events-course), and [ddd_problems-domain_events_errors_handling-course](https://github.com/CodelyTV/ddd_problems-domain_events_errors_handling-course), corrected for transaction, retry, ordering, and consumer semantics.
+Sources: CodelyTV event-bus courses, [inbox_outbox_pattern-course](https://github.com/CodelyTV/inbox_outbox_pattern-course), [infrastructure_design-eventbus-db-course](https://github.com/CodelyTV/infrastructure_design-eventbus-db-course), [infrastructure_design-eventbus-rabbitmq-course](https://github.com/CodelyTV/infrastructure_design-eventbus-rabbitmq-course), [infrastructure_design-eventbus-aws-course](https://github.com/CodelyTV/infrastructure_design-eventbus-aws-course), [domain_modeling-domain_events-course](https://github.com/CodelyTV/domain_modeling-domain_events-course), and [ddd_problems-domain_events_errors_handling-course](https://github.com/CodelyTV/ddd_problems-domain_events_errors_handling-course), corrected for transaction, retry, ordering, and consumer semantics.
 
 This reference owns transport and reliability. The domain owns which facts occurred; the application translates public contracts; infrastructure delivers them.
 
@@ -64,6 +64,8 @@ user.clearDomainEvents(pending); // only after commit succeeds
 
 An Event Bus that opens a separate transaction around only its inserts does not solve the dual-write problem. An external broker cannot participate atomically in a normal database transaction; retain the Outbox even when the relay publishes to RabbitMQ or Kafka.
 
+Names and callback nesting do not prove atomicity. Verify that Aggregate repositories and Outbox adapters execute through the exact transaction-scoped handle. Likewise, an Inbox transaction around `subscriber.on()` is insufficient when subscriber repositories keep using a root pool/connection; propagate the same transaction context to every local effect.
+
 Do not irreversibly lose pulled events before durable handoff. The Unit of Work must append them before commit and retain/recover them on rollback, or inspect without draining until the transaction succeeds.
 
 A singleton deferred in-memory bus is not an Outbox. Buffering events and dispatching them just before commit can mix concurrent requests, expose effects for a transaction that later fails, and lose everything on process crash. Dispatching after commit avoids rolled-back publication but recreates the dual-write crash gap. Same-process handlers may join only when all their writes use the same scoped database transaction; external effects require durable handoff.
@@ -110,6 +112,8 @@ COMMIT;
 ```
 
 Back this with `UNIQUE (message_id, consumer)`. An Inbox committed before a local effect can lose work; committed after it can duplicate work. Both can be atomic only when the effect uses the same transactional database. For email, payment, or another remote system, use a provider idempotency key or persist a durable intent/outbox and reconcile uncertain outcomes.
+
+An Outbox can store capability-specific intents as well as Integration Events. For example, an email port may append a versioned email intent in the caller's transaction, then a worker sends it with a provider idempotency key. Do not hold database locks across the network send; claim briefly, execute remotely, and complete conditionally. A remote success followed by a crash remains ambiguous and may be retried.
 
 Transport deduplication and semantic idempotency are different. An Inbox rejects the same message ID, while a business rule may require uniqueness by another key, such as one course creation per course ID. Use both when needed. Protect semantic uniqueness with a database constraint, atomic upsert, or conditional write; check-then-insert alone races under concurrent consumers.
 
@@ -212,6 +216,7 @@ Prefer an application Outbox once the writer can change.
 ## Review Checklist
 
 - Do state and Outbox append share one real transaction context?
+- Do Inbox and every local subscriber repository share one real transaction context?
 - Is message identity stable across retries?
 - Does each subscriber have independent delivery state?
 - Is this explicitly a fan-out queue or an append-only log with offsets?

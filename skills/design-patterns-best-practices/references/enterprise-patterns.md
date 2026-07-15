@@ -1270,35 +1270,33 @@ Patterns from Martin Fowler's *Patterns of Enterprise Application Architecture* 
 
 **Category:** Messaging / Reliability
 
-**Intent:** Guarantee that domain events are always published to a message broker even if the application crashes after saving the aggregate but before publishing.
+**Intent:** Guarantee durable atomic handoff of outgoing messages with local state so a relay can retry publication after application crashes.
 
-**How it works:** Instead of publishing events directly to the broker inside the same database transaction that saves the aggregate, the application writes the events to an `outbox` table in the same database transaction. A separate relay process (a background worker or scheduler) reads unpublished events from the outbox table and forwards them to the broker, then marks them as published. Because saving the aggregate and writing to the outbox share one ACID transaction, either both succeed or neither does — the dual-write race condition is eliminated. The relay process delivers at-least-once; consumers must be idempotent or pair the Outbox with the Inbox Pattern to achieve exactly-once semantics.
+**How it works:** Instead of publishing directly after saving, the application writes Aggregate state and versioned messages to an `outbox` table through the same transaction-scoped connection. A separate relay claims bounded rows, publishes them, and conditionally completes only confirmed publications. The state-to-Outbox dual write is eliminated, while relay delivery remains at-least-once and consumers must tolerate duplicates.
 
 **Example:**
 ```typescript
-// PostgresCourseRepository — save aggregate AND record event atomically
+// Application Unit of Work — state and messages share the same tx handle
 async save(course: Course): Promise<void> {
   const primitives = course.toPrimitives();
+  const events = course.pendingDomainEvents();
 
-  await this.execute`
-    INSERT INTO mooc.courses (id, name, summary, categories, published_at)
-    VALUES (
-      ${primitives.id}, ${primitives.name}, ${primitives.summary},
-      ${primitives.categories}, ${primitives.publishedAt}
-    )
-    ON CONFLICT (id) DO UPDATE SET
-      name = EXCLUDED.name,
-      summary = EXCLUDED.summary;
-  `;
-
-  // Write domain events to outbox in the SAME transaction
-  const events = course.pullDomainEvents();
-  for (const event of events) {
-    await this.execute`
-      INSERT INTO outbox (id, event_name, payload, published)
-      VALUES (${event.eventId}, ${event.eventName}, ${JSON.stringify(event)}, false)
+  await this.transactionManager.run(async (tx) => {
+    await tx.execute`
+      INSERT INTO mooc.courses (id, name, summary, categories, published_at)
+      VALUES (${primitives.id}, ${primitives.name}, ${primitives.summary},
+              ${primitives.categories}, ${primitives.publishedAt})
     `;
-  }
+
+    for (const event of events) {
+      await tx.execute`
+        INSERT INTO outbox (id, event_name, payload)
+        VALUES (${event.eventId}, ${event.eventName}, ${JSON.stringify(event)})
+      `;
+    }
+  });
+
+  course.clearDomainEvents(events);
 }
 
 // Relay process (scheduled job) — runs independently
@@ -1313,7 +1311,7 @@ async relay(): Promise<void> {
 }
 ```
 
-**Practical heuristic:** Never call `eventBus.publish()` inside the same application method that saves an aggregate to the database without the Outbox Pattern — any crash between save and publish silently drops events.
+**Practical heuristic:** Never infer atomicity from sequential calls or an adapter name. Verify state and Outbox append use the same real transaction context. For claiming, retries, crash windows, and broker confirmation, use `infrastructure-design/references/event-bus.md` rather than the simplified sketch above.
 
 ---
 
@@ -1323,7 +1321,7 @@ async relay(): Promise<void> {
 
 **Intent:** Guarantee idempotent message consumption so that duplicate deliveries from a message broker do not cause duplicate side-effects.
 
-**How it works:** When a consumer receives a message, it first writes the message's unique ID to an `inbox` table in the same transaction that processes the message's effect. Before processing, it checks whether the message ID already exists in the inbox — if it does, the message is discarded as a duplicate. Because checking and recording happen atomically with the business operation, concurrent duplicate deliveries are safely rejected. The Inbox Pattern is the consumer-side complement to the Outbox Pattern: Outbox guarantees at-least-once publication; Inbox upgrades that to exactly-once consumption.
+**How it works:** When a consumer receives a message, it attempts to insert `(message_id, consumer_id)` under a unique constraint in the same local database transaction as the business effect. A duplicate insertion performs no effect. This suppresses duplicate application of that local transactional effect; it does not change the broker's at-least-once delivery contract.
 
 **Example:**
 ```typescript
@@ -1349,13 +1347,13 @@ async handleUserRegistered(messageId: string, payload: UserRegisteredPayload): P
 }
 ```
 
-**Practical heuristic:** Any message consumer that performs non-idempotent side-effects (incrementing a counter, sending an email, charging a card) must use an Inbox or equivalent deduplication mechanism — at-least-once brokers will deliver duplicates under failure.
+**Practical heuristic:** Use Inbox or natural idempotency for local database effects. For email, payment, or another remote effect, use a provider idempotency key or persist a durable intent and reconcile ambiguous outcomes; an Inbox cannot atomically include a network call.
 
 ---
 
-## Outbox + Inbox Together (Exactly-Once Delivery)
+## Outbox + Inbox Together (Effectively-Once Local Effects)
 
-**Intent:** Combine both patterns to achieve end-to-end exactly-once delivery semantics across bounded contexts.
+**Intent:** Combine reliable at-least-once publication with duplicate suppression for a consumer's local transactional effect.
 
 **How it works:** The producing service uses the Outbox Pattern to guarantee at-least-once publication. The consuming service uses the Inbox Pattern to deduplicate deliveries. Together they form a reliable, transactional messaging pipeline:
 
@@ -1363,6 +1361,6 @@ async handleUserRegistered(messageId: string, payload: UserRegisteredPayload): P
 2. Relay: reads outbox → publishes to broker → marks as published.
 3. Consumer: `[check inbox + apply effect + write inbox]` in one DB transaction.
 
-The broker may deliver the same event multiple times (network retries, relay restarts), but the consumer's inbox table ensures each event is applied exactly once.
+The broker may deliver the same message multiple times. The Inbox can ensure one committed local effect per stable `(message_id, consumer_id)` while its retention record exists. It does not guarantee exactly-once transport, ordering, or remote effects.
 
 **Practical heuristic:** Use the Outbox Pattern on the publishing side and the Inbox Pattern on the consuming side any time cross-context eventual consistency must be reliable. Do not add this infrastructure for intra-aggregate communication — keep that synchronous and transactional.
