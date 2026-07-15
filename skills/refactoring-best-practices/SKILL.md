@@ -95,6 +95,7 @@ Use this skill when the main challenge is changing existing code safely.
 - Use `oop-best-practices` for everyday new code decisions.
 - Use `design-patterns-best-practices` when the main issue is choosing an object collaboration pattern.
 - Use `ddd-best-practices` when moving invariants, splitting a God Aggregate, introducing a root, changing a consistency boundary, or shaping a domain Repository extracted from legacy persistence.
+- Use `data-migration-best-practices` for moving or backfilling persisted data; this skill owns only the safe code seams and compatibility paths around that operational migration.
 
 ## Source Influences
 

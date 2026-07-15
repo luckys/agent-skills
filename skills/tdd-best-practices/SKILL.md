@@ -1,6 +1,6 @@
 ---
 name: tdd-best-practices
-description: Test-Driven Development guidance. Use when writing tests before implementation, applying Red-Green-Refactor, testing Value Object contracts, typed domain failures/Results, DDD Aggregates, Domain Events/subscribers, transaction or cache boundaries, Criteria/query adapters, repository contracts or persistence adapters, choosing between test doubles, deciding test granularity, practicing outside-in or inside-out TDD, reviewing test suite quality, or diagnosing brittle tests.
+description: Test-Driven Development guidance. Use when writing tests before implementation, applying Red-Green-Refactor, testing Value Object contracts, typed domain failures/Results, DDD Aggregates, Domain Events/subscribers, transaction or cache boundaries, data migrations/backfills, Criteria/query adapters, repository contracts or persistence adapters, choosing between test doubles, deciding test granularity, reviewing test suite quality, or diagnosing brittle tests.
 license: MIT
 metadata:
   author: luckys
@@ -93,6 +93,7 @@ Treat difficulty writing a test first as a design or boundary signal; legacy con
 - Read `references/tdd-anti-patterns.md` for James Carr's 15 anti-patterns, Ian Cooper's "TDD, Where Did It All Go Wrong" insights, and recovery strategies.
 - Read `references/tdd-language-examples.md` for Red-Green-Refactor walkthroughs in TypeScript, Java, Python, C#, Ruby, and PHP with their respective test frameworks.
 - Read `references/projection-testing.md` for duplicate, ordering, concurrency, checkpoint, schema migration, replay/rebuild, and eventual-consistency tests for read models.
+- Read `references/migration-testing.md` for transformation, dirty-data, idempotent rerun, batch, checkpoint, concurrent-write, reconciliation, cutover, and recovery tests for data migrations.
 - Read `references/value-object-testing.md` for semantic equality, invariant boundaries, deep immutability, normalization, optionality, serialization, and property-based Value Object tests.
 - Read `references/aggregate-testing.md` for invariant-first Aggregate tests, repository contract and adapter tests, including atomic failures, deterministic Mothers, collection equality, transaction propagation, and concurrency integration tests.
 - Read `references/domain-event-testing.md` for Aggregate event assertions, application handoff, subscriber and real-bus tests, Outbox/Inbox delivery tests, Integration Event contracts, and CDC mapping tests.
@@ -106,6 +107,7 @@ Treat difficulty writing a test first as a design or boundary signal; legacy con
 - Use `oop-best-practices` when a class is hard to test — the design needs improvement first.
 - Use `refactoring-best-practices` when adding tests to untested legacy code (characterization tests).
 - Use `ddd-best-practices` to decide Aggregate boundaries and invariant ownership before testing them.
+- Use `data-migration-best-practices` to design the operational migration workflow and cutover gates before testing it.
 
 ## Source Influences
 

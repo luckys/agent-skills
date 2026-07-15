@@ -47,6 +47,7 @@ Practical infrastructure patterns for layered (hexagonal/DDD) applications. The 
 - `oop-best-practices` — domain interface design and dependency inversion
 - `tdd-best-practices` — real-database transaction, rollback, concurrency, and delivery tests
 - `refactoring-best-practices` — incremental migration of controller/repository transaction boundaries
+- `data-migration-best-practices` — snapshot/backfill, live-delta handoff, reconciliation, cutover, and repair workflow
 
 ## References
 
