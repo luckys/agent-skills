@@ -1,6 +1,6 @@
 # Object Calisthenics
 
-Use this reference when reviewing or writing object-oriented code and you want to apply Jeff Bay's nine structural rules as a discipline for forcing better design habits.
+Use this reference when reviewing or writing object-oriented code and you want to apply Jeff Bay's nine structural rules as temporary exercises for exposing design pressure. They are not production acceptance criteria: evaluate the resulting cohesion, invariant protection, coupling, readability, and change cost rather than numeric compliance.
 
 ## Rule 1: One Level of Indentation Per Method
 

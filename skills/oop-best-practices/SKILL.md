@@ -122,7 +122,7 @@ Use it especially when the task benefits from:
 - Read `references/go-examples.md` for OOP concepts in Go (structs, implicit interfaces, composition, no inheritance).
 - Read `references/rust-examples.md` for OOP concepts in Rust (structs, traits, newtype pattern, ownership as immutability).
 - Read `references/simple-design-rules.md` for Kent Beck's 4 Rules of Simple Design: passes tests, reveals intention, no duplication, fewest elements — with CodelyTV examples.
-- Read `references/oop-good-practices-examples.md` for Law of Demeter, Tell Don't Ask, Named Constructors, and cohesion/coupling examples from CodelyTV.
+- Read `references/oop-good-practices-examples.md` for corrected cross-language lessons on Demeter, Tell Don't Ask, named construction, collection identity, dependency roles, and course counterexamples.
 - Read `references/value-objects-advanced.md` as the canonical Value Object guide: selection criteria, invariant ownership, construction/parsing, equality and hashing, deep immutability, behavior, optionality, first-class collections, persistence, testing, and safe evolution.
 
 ## Related Skills
@@ -144,5 +144,6 @@ This skill is synthesized from ideas emphasized in:
 - Fran Iglesias's `design-principles` articles
 - Fran Iglesias's `good-practices` articles
 - Fran Iglesias's `Object Calisthenics` series
+- [CodelyTV OOP Good Practices course](https://github.com/CodelyTV/object_oriented_programming-good_practices-course) (including progressive and overwritten educational counterexamples)
 - [CodelyTV Aggregates course](https://github.com/CodelyTV/aggregates-course)
 - [CodelyTV Value Objects course](https://github.com/CodelyTV/value_objects-course)

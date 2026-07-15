@@ -1,164 +1,68 @@
-# OOP Good Practices — CodelyTV Examples
+# OOP Good Practices: Course Observations
 
-Source: CodelyTV `object_oriented_programming-good_practices-course`
+Source: reviewed lessons and history from [CodelyTV/object_oriented_programming-good_practices-course](https://github.com/CodelyTV/object_oriented_programming-good_practices-course). The repository contains progressive and occasionally overwritten educational snapshots; treat the guidance below as corrected interpretation, not a claim that every proposed refactoring appears in the final tree.
 
-Three core practices covered by the course: Law of Demeter, Tell Don't Ask, and Named Constructors for cohesive object creation.
+## Law of Demeter as Knowledge Coupling
 
----
+The TypeScript finder reaches through `User -> UserFullName -> UserName/UserLastName -> value` to format a name. The problem is not the number of dots by itself: the finder knows the nested representation and changes when that representation changes.
 
-## Law of Demeter (Principle of Least Knowledge)
+Move the smallest stable capability to the concept that owns it. In this case `UserFullName.formatted()` is usually more cohesive than putting presentation on `User`. A finder may then ask for the semantic result without knowing the nested fields. Fluent APIs, immutable DTO mapping, and chains returning the same object are not automatically Demeter violations.
 
-**Intent:** An object should only talk to its direct collaborators, not to the collaborators of collaborators.
+Value Objects do not improve encapsulation when every caller still traverses their public `.value` graph. Introduce them for meaning, invariants, type distinction, or behavior, and expose the narrow semantic operation that callers actually need.
 
-**How it works:** The "train wreck" pattern `a.getB().getC().doSomething()` couples you to the internal structure of A, B, and C. When any link in the chain changes, all callers break. The Demeter Law says a method may only call methods on: itself, its parameters, objects it creates, and its direct fields.
+## Tell, Do Not Ask
 
-**Violation (Python):**
-```python
-# Bad: reaching into user's internal graph
-saved_products_text = (
-    f"{user.full_name.name.value} {user.full_name.last_name.value}'s saved products:\n"
-)
-for saved_product in user.saved_products:
-    product_id = saved_product.id.value      # three levels deep
-    product_name = saved_product.name.value
-    product_price = saved_product.price.value
-```
+The Python example contrasts direct inspection/mutation of `saved_products` with `add_to_saved_products` and `remove_from_saved_products`. The useful lesson is ownership of the decision: duplicate and removal policy belong with the object or collection that owns membership.
 
-**Fixed (Python):**
-```python
-# Good: User encapsulates its own representation
-print(user.display_saved_products())
-```
+Do not infer more than the code guarantees. Python list membership uses object equality; because the course `Product` lacks semantic equality, the implementation prevents the same instance from being added twice, not two different instances with the same product ID. ID-based uniqueness requires explicit equality or lookup by ID.
 
-**Practical heuristic:** Count the dots. More than one dot in a single expression is a warning sign. Move the behavior to the object that owns the data.
+Tell, Do Not Ask does not ban queries. Queries are appropriate for orchestration, authorization inputs, read models, and presentation. Move a decision when a caller repeatedly interprets another object's owned state. Keep CLI/HTTP/localized rendering in presenters or adapters rather than moving every display string into a domain entity.
 
----
+## Named Construction and Cohesion
 
-## Tell Don't Ask
+The final Java snapshot assembles `UserId`, `UserFullName`, default access level, and registration time inside `UserRegistrar`; despite the directory name, it no longer contains the historical `User.register(...)` factory. Treat it as a construction-knowledge smell and an exercise, not as a finished named-constructor example.
 
-**Intent:** Instead of querying an object's state and making decisions based on it, tell the object to make the decision itself.
+A named constructor is useful when its name expresses a lifecycle event or stable variant and it centralizes defaults/invariants that callers should not know. It is not useful merely to hide `new`. Private construction centralizes supported creation paths; each path must still validate its own invariants.
 
-**How it works:** "Ask" code extracts data and makes decisions outside the object, scattering the logic. "Tell" code sends a command and lets the object apply its own rules. This keeps the Single Responsibility Principle: the object that knows the data owns the behavior.
+When creation needs ambient dependencies such as a clock, choose deliberately:
 
-**Ask approach (bad):**
-```python
-# Caller reads internal state and mutates it directly
-if product1 not in user.saved_products:
-    user.saved_products.append(product1)
+- let the application obtain time and pass an explicit `Instant` to a cohesive domain factory;
+- use a dedicated factory when several external collaborators participate;
+- avoid making the Aggregate depend directly on infrastructure just to preserve a named constructor.
 
-user.saved_products.remove(product1)
-remaining_products = len(user.saved_products)
-```
+Do not proliferate factories for speculative variants. Let repeated, stable construction knowledge earn the abstraction.
 
-**Tell approach (good):**
-```python
-# Caller sends intent; User decides how to fulfill it
-user.add_to_saved_products(product1)
-user.remove_from_saved_products(product1)
-print(user.display_saved_products())
-```
+## Collections and Identity
 
-The `User` class owns the rules about what "add to saved products" means (e.g., no duplicates), rather than leaking that logic to every caller.
+Keep invariant-bearing mutable collections private. Expose intention-revealing mutations and immutable snapshots or semantic queries when callers need reads. Introduce a first-class collection when membership, uniqueness, ordering, capacity, selection, or aggregation forms a real concept; a transported read-only list does not need a wrapper.
 
-**Practical heuristic:** If you call a getter and then immediately make a decision based on the result, you are asking. Move that decision into the object as a method that accepts the intent, not the implementation.
+Define identity explicitly. For saved products, decide whether duplicates mean the same instance, product ID, SKU, or complete value. Return an outcome or typed failure for duplicate/absent operations when callers need to react; silent no-op is a policy, not a universal default.
 
----
+## Dependencies and Substitutability
 
-## Named Constructors for Cohesion
+Constructor-injected repository roles in the course improve dependency direction. The Java fake, however, discards saves and always misses on search, so it satisfies signatures without the useful behavioral contract. Liskov substitution includes observable behavior, not compilation alone.
 
-**Intent:** Replace overloaded or flag-driven constructors with static factory methods whose names express the creation intent.
+Use a stateful fake when save-then-find semantics matter, create/reset it per test, and share the same lifecycle-scoped instance across commands and queries. Time, randomness, and environment are dependencies too; inject them when their values affect behavior or tests.
 
-**How it works:** A single constructor with many optional parameters or a `type` flag forces callers to know the internal structure. Named constructors are static methods that encapsulate creation variants under meaningful names. This is taught in the cohesion vs coupling section of the course.
+Do not create an interface for every class. Extract a role at a volatile/I/O boundary, when multiple implementations exist, or when a client needs a narrower capability.
 
-**Before — primitive constructor:**
-```java
-// Caller must know which arguments each role needs
-User user1 = new User("javier", "javier@codely.tv", "admin", null, "ADMIN_CODE");
-User user2 = new User("maria",  "maria@codely.tv",  "user",  25,   null);
-```
+## Cross-Language Enforcement
 
-**After — named constructors:**
-```typescript
-class User {
-  private constructor(
-    private readonly id: UserId,
-    private readonly email: UserEmail,
-    private readonly role: UserRole
-  ) {}
+- **TypeScript:** `readonly` is shallow and compile-time only; public nested fields still leak representation. Structural mocks can conform accidentally, and runtime payloads still need validation.
+- **Python:** privacy is conventional, lists and wrappers remain mutable unless protected, and collection membership depends on `__eq__`. Return tuples/copies for immutable views and avoid binary `float` for authoritative money.
+- **Java:** records provide shallow immutability and value equality, while `LocalDateTime.now()` is ambient and timezone-free. Prefer `Clock` plus `Instant` for deterministic audit time unless civil local time is the domain concept.
 
-  static createAdmin(id: string, email: string, adminCode: string): User {
-    return new User(new UserId(id), new UserEmail(email), UserRole.admin(adminCode));
-  }
+## Review Questions
 
-  static createStandardUser(id: string, email: string): User {
-    return new User(new UserId(id), new UserEmail(email), UserRole.standard());
-  }
-}
-```
+- Which decision or invariant is scattered outside the object that owns it?
+- Does a message chain leak volatile structure or merely map stable data?
+- Does a wrapper add meaning/behavior, or only another `.value` hop?
+- Is collection uniqueness based on the correct identity?
+- Does a named constructor express a real creation intent and enforce its contract?
+- Does a fake preserve the collaborator's essential behavioral semantics?
+- Is presentation being confused with domain behavior?
+- Is a numeric style rule revealing a design problem, or creating artificial objects?
 
-Making the constructor `private` forces all creation through named constructors, ensuring invariants are always enforced.
+## Course Caveats
 
-**Practical heuristic:** If callers pass different combinations of nullable arguments depending on context, that is a signal to introduce named constructors — one per creation context.
-
----
-
-## Cohesion vs Coupling
-
-**Intent:** High cohesion means a class's parts all serve the same purpose. Low coupling means a class depends on as few external things as possible.
-
-**How it works:** The course treats these as a pair. Adding responsibilities to a class raises coupling (it needs more collaborators) and lowers cohesion (it serves more masters). Named constructors and value objects are tools for improving both simultaneously: creation logic moves into the class (cohesion), and callers no longer need to know primitive construction details (coupling).
-
-**Practical heuristic:** If you find yourself importing or injecting a new dependency to support a new method, ask whether that method belongs in this class or in the class that already owns the dependency.
-
----
-
-## Demeter Violation in TypeScript — Full Example
-
-Source: `02-demeter_tell_dont_ask/1-demeter/src/UserFullNameByIdFinder.ts`
-
-**Violation — reaching through nested value objects:**
-```typescript
-// Bad: finder reaches through User → UserFullName → UserName → value
-export class UserFullNameByIdFinder {
-  constructor(private readonly repository: UserRepository) {}
-
-  find(id: string): string {
-    const user = this.repository.search(id);
-    if (user === null) throw new Error(`The user ${id} does not exist`);
-    // Demeter violation: two dots into internal structure
-    return `${user.fullName.name.value} ${user.fullName.lastName.value}`;
-  }
-}
-```
-
-**Fix — move display logic into User:**
-```typescript
-// Good: User exposes a single method that produces its own display string
-export class User {
-  constructor(
-    public readonly id: UserId,
-    public readonly fullName: UserFullName,
-  ) {}
-
-  displayFullName(): string {
-    return `${this.fullName.name.value} ${this.fullName.lastName.value}`;
-  }
-}
-
-export class UserFullNameByIdFinder {
-  find(id: string): string {
-    const user = this.repository.search(id);
-    if (user === null) throw new Error(`The user ${id} does not exist`);
-    return user.displayFullName(); // single dot — Demeter satisfied
-  }
-}
-```
-
-**Why the structures are correct:** `User` holds a `UserFullName` value object; `UserFullName` holds `UserName` and `UserLastName`. Each has a `.value` primitive. The fix is not to flatten the structure — it is to add one method that encapsulates the traversal so callers never have to chain through it.
-
----
-
-## Related Skills
-
-- `oop-best-practices` — naming, object boundaries, value objects
-- `simple-design-rules` — Rule 2 (reveals intention) and Rule 3 (no duplication) complement Tell Don't Ask
+Do not copy length-only UUID validation, arbitrary universal name lengths, public mutable Python collections, float money, domain-owned display formatting, hard-coded current time, a non-persisting fake repository, broad `RuntimeException` catch-to-empty responses, or the final Java snapshot as proof of named constructors. Protect observable behavior with tests before applying these refactorings; use static architecture checks only for an intentional structural boundary, not to assert dot counts.
