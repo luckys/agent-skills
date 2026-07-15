@@ -1,406 +1,265 @@
 # Criteria Pattern
 
-A domain-level query abstraction that encapsulates filters, sorting, and pagination as first-class objects. Lets repositories accept rich query descriptions without leaking SQL or storage details into the domain layer.
+Source: principles and counterexamples reviewed from [CodelyTV/design_patterns-criteria-course](https://github.com/CodelyTV/design_patterns-criteria-course), corrected and generalized for production use.
 
-Source: CodelyTV `design_patterns-criteria-course`.
+Criteria is a typed Query Object that carries predicates, ordering, and pagination without exposing SQL, ORM, or search-engine syntax to callers.
 
----
+## When to Use It
 
-## What Is the Criteria Pattern?
+Use Criteria when callers genuinely compose dynamic filter/order/page combinations. Keep explicit repository/query methods when a search has stable business meaning, such as `pendingForRoute(routeId)`. Use a dedicated read-model query port when results join Aggregates, compute reports, or return projection DTOs.
 
-**Intent:** Encapsulate query filters, sorting, and pagination into composable domain objects so repositories can be queried without exposing SQL, ORM, or storage details to callers.
+Method count is not the decision rule. Criteria reduces accidental combinations; it should not erase Ubiquitous Language.
 
-**How it works:** Instead of adding one repository method per query variant (`findByName`, `findByNameOrderedByDate`, `findActiveByCategory`…), you define a `Criteria` value object that carries filters, an order, and optional pagination. The repository accepts a single `matching(criteria: Criteria)` method. An infrastructure-side converter translates the `Criteria` into whatever the storage technology needs (SQL, Elasticsearch DSL, MongoDB query, etc.). The domain never sees SQL; the storage layer never sees domain objects.
+Criteria belongs in the domain only when fields/operators are domain-named concepts. A generic technical query language normally belongs in the application/query core. HTTP parameters and database columns belong at adapters.
 
-**Core building blocks:**
-- `FilterField` — the field name being tested (e.g., `"name"`, `"status"`)
-- `FilterOperator` — the comparison operator (`=`, `!=`, `>`, `<`, `CONTAINS`, `NOT_CONTAINS`)
-- `FilterValue` — the value to compare against
-- `Filter` — one predicate: field + operator + value
-- `Filters` — a collection of `Filter` objects (AND-combined by default)
-- `Order` — a field name + direction (`ASC`, `DESC`, or `NONE`)
-- `Criteria` — the top-level container: filters + order + optional pagination
+## Model an AST, Not a String DSL
 
-**Practical heuristic:** If you have more than 2–3 repository methods that differ only by which fields they filter or how they sort, extract a `Criteria`-based `matching()` method and delete the specific ones.
-
----
-
-## Core Domain Objects
-
-**Example (TypeScript — from CodelyTV course):**
+Represent boolean structure explicitly. Do not split an untrusted string on `AND`, `OR`, spaces, or parentheses.
 
 ```typescript
-// FilterOperator.ts
-export enum Operator {
-  EQUAL = "=",
-  NOT_EQUAL = "!=",
-  GT = ">",
-  LT = "<",
-  CONTAINS = "CONTAINS",
-  NOT_CONTAINS = "NOT_CONTAINS",
-}
+type Scalar = string | number | boolean | Date;
+type LogicalField = "id" | "name" | "registeredAt";
+type Cursor = { readonly values: readonly Scalar[] };
 
-export class FilterOperator {
-  constructor(public readonly value: Operator) {
-    if (!Object.values(Operator).includes(value)) {
-      throw new Error(`Unsupported filter operator: ${value}`);
-    }
+class InvalidCriteria extends Error {}
+
+function freezePredicate(node: Predicate): Predicate {
+  if (node.kind === "and" || node.kind === "or") {
+    return Object.freeze({ ...node, operands: Object.freeze(node.operands.map(freezePredicate)) });
   }
-
-  isContains(): boolean { return this.value === Operator.CONTAINS; }
-  isNotContains(): boolean { return this.value === Operator.NOT_CONTAINS; }
+  if (node.kind === "not") return Object.freeze({ ...node, operand: freezePredicate(node.operand) });
+  if (node.kind === "in") return Object.freeze({ ...node, values: Object.freeze([...node.values]) });
+  return Object.freeze({ ...node });
 }
 
-// Filter.ts
-export class Filter {
-  constructor(
-    public readonly field: FilterField,
-    public readonly operator: FilterOperator,
-    public readonly value: FilterValue,
-  ) {}
-}
+type Predicate =
+  | { readonly kind: "comparison"; readonly field: LogicalField; readonly operator: ScalarOperator; readonly value: Scalar }
+  | { readonly kind: "in"; readonly field: LogicalField; readonly values: readonly Scalar[] }
+  | { readonly kind: "isNull"; readonly field: LogicalField }
+  | { readonly kind: "and"; readonly operands: readonly Predicate[] }
+  | { readonly kind: "or"; readonly operands: readonly Predicate[] }
+  | { readonly kind: "not"; readonly operand: Predicate };
 
-// Filter.ts — full implementation
-export type FiltersPrimitives = {
-  field: string;
-  operator: string;
-  value: string;
+type ScalarOperator = "eq" | "neq" | "gt" | "gte" | "lt" | "lte" | "contains";
+type Operator = ScalarOperator | "in" | "isNull";
+type Direction = "asc" | "desc";
+
+type Sort = {
+  readonly field: LogicalField;
+  readonly direction: Direction;
 };
 
-export class Filter {
+type OffsetPage = { readonly kind: "offset"; readonly limit: number; readonly offset: number };
+type CursorPage = { readonly kind: "cursor"; readonly limit: number; readonly after: Cursor | null };
+type Pagination = OffsetPage | CursorPage;
+
+class Criteria {
+  readonly predicate: Predicate | null;
+  readonly sort: readonly Sort[];
+  readonly pagination: Pagination;
+
   constructor(
-    public readonly field: FilterField,
-    public readonly operator: FilterOperator,
-    public readonly value: FilterValue,
-  ) {}
-
-  static fromPrimitives(field: string, operator: string, value: string): Filter {
-    const parsedOperator = Operator[operator as keyof typeof Operator];
-    if (parsedOperator === undefined) throw new Error(`Unsupported filter operator: ${operator}`);
-
-    return new Filter(
-      new FilterField(field),
-      new FilterOperator(parsedOperator),
-      new FilterValue(value),
-    );
-  }
-
-  toPrimitives(): FiltersPrimitives {
-    return { field: this.field.value, operator: this.operator.value, value: this.value.value };
-  }
-}
-
-// Filters.ts — collection wrapper
-export class Filters {
-  constructor(public readonly value: Filter[]) {}
-
-  static fromPrimitives(filters: FiltersPrimitives[]): Filters {
-    return new Filters(
-      filters.map((f) => Filter.fromPrimitives(f.field, f.operator, f.value)),
-    );
-  }
-
-  toPrimitives(): FiltersPrimitives[] {
-    return this.value.map((f) => f.toPrimitives());
-  }
-
-  isEmpty(): boolean {
-    return this.value.length === 0;
-  }
-}
-
-// Order.ts
-export class Order {
-  constructor(
-    public readonly orderBy: OrderBy,
-    public readonly orderType: OrderType,
-  ) {}
-
-  static none(): Order {
-    return new Order(new OrderBy(""), new OrderType(OrderTypes.NONE));
-  }
-
-  isNone(): boolean {
-    return this.orderType.value === OrderTypes.NONE;
-  }
-}
-
-// Criteria.ts
-export class Criteria {
-  constructor(
-    public readonly filters: Filters,
-    public readonly order: Order,
-    public readonly pageSize: number | null = null,
-    public readonly pageNumber: number | null = null,
+    predicate: Predicate | null,
+    sort: readonly Sort[],
+    pagination: Pagination,
   ) {
-    if (pageNumber !== null && pageSize === null) {
-      throw new Error("Page size is required when page number is defined");
+    if (!Number.isInteger(pagination.limit) || pagination.limit < 1 || pagination.limit > 100) {
+      throw new InvalidCriteria("limit must be an integer between 1 and 100");
     }
-    if (pageSize !== null && (!Number.isInteger(pageSize) || pageSize < 1 || pageSize > 100)) {
-      throw new Error("Page size must be an integer between 1 and 100");
+    if (pagination.kind === "offset" && (!Number.isInteger(pagination.offset) || pagination.offset < 0)) {
+      throw new InvalidCriteria("offset must be a non-negative integer");
     }
-    if (pageNumber !== null && (!Number.isInteger(pageNumber) || pageNumber < 0)) {
-      throw new Error("Page number must be a non-negative integer");
+    if (sort.length === 0) {
+      throw new InvalidCriteria("pagination requires a stable total order");
     }
-  }
+    if (sort.at(-1)?.field !== "id") {
+      throw new InvalidCriteria("the final sort field must be the unique id tie-breaker");
+    }
+    if (pagination.kind === "cursor" && pagination.after !== null && pagination.after.values.length !== sort.length) {
+      throw new InvalidCriteria("cursor values must match the complete sort order");
+    }
 
-  static fromPrimitives(
-    filters: FiltersPrimitives[],
-    orderBy: string | null,
-    orderType: string | null,
-    pageSize: number | null,
-    pageNumber: number | null,
-  ): Criteria {
-    return new Criteria(
-      Filters.fromPrimitives(filters),
-      Order.fromPrimitives(orderBy, orderType),
-      pageSize,
-      pageNumber,
-    );
-  }
-
-  hasOrder(): boolean {
-    return !this.order.isNone();
-  }
-
-  hasFilters(): boolean {
-    return !this.filters.isEmpty();
+    this.predicate = predicate ? freezePredicate(predicate) : null;
+    this.sort = Object.freeze(sort.map((item) => Object.freeze({ ...item })));
+    this.pagination = pagination.kind === "cursor"
+      ? Object.freeze({ ...pagination, after: pagination.after ? Object.freeze({ values: Object.freeze([...pagination.after.values]) }) : null })
+      : Object.freeze({ ...pagination });
   }
 }
 ```
 
----
+Use immutable arrays/objects. Parse primitive wire values through validated factories rather than enum casts or non-null assertions. Preserve number, boolean, date, null, and list types instead of coercing every filter value to string.
 
-## Converting Criteria to SQL
+## Logical Field Registry
 
-**Intent:** Keep SQL generation in the infrastructure layer while the domain only works with `Criteria` objects.
-
-**How it works:** A `CriteriaToSqlConverter` reads the `Criteria` and generates a parameterized SQL query. The domain repository interface accepts `Criteria`; the infrastructure implementation calls the converter and runs the query.
-
-**Example:**
+Callers use stable logical fields. Each adapter owns a closed mapping to storage identifiers and capabilities:
 
 ```typescript
-// infrastructure/criteria/CriteriaToSqlConverter.ts
-type SqlQuery = { text: string; params: unknown[] };
+type FieldDefinition = {
+  readonly sql: string;
+  readonly type: "string" | "number" | "boolean" | "instant" | "uuid";
+  readonly operators: ReadonlySet<Operator>;
+  readonly sortable: boolean;
+  readonly nullable: false;
+};
 
-interface SqlAllowList {
-  fields(fields: string[]): string;
-  field(field: string): string;
-  table(table: string): string;
-  operator(operator: Operator): string;
-  direction(direction: OrderTypes): string;
-}
+const userFields: Readonly<Record<LogicalField, FieldDefinition>> = {
+  id: { sql: "u.id", type: "uuid", operators: new Set(["eq", "neq", "in"]), sortable: true, nullable: false },
+  name: { sql: "u.name", type: "string", operators: new Set(["eq", "neq", "contains"]), sortable: true, nullable: false },
+  registeredAt: { sql: "u.registered_at", type: "instant", operators: new Set(["eq", "gt", "gte", "lt", "lte"]), sortable: true, nullable: false },
+};
+```
 
-export class CriteriaToSqlConverter {
-  constructor(private readonly allowed: SqlAllowList) {}
+Reject unknown fields, incompatible operators, wrong value types, and unsupported sorting before query execution. Never accept table names, selected columns, aliases, joins, operators, or sort directions directly from user input.
 
-  convert(fieldsToSelect: string[], tableName: string, criteria: Criteria): SqlQuery {
-    const params: unknown[] = [];
-    let query = `SELECT ${this.allowed.fields(fieldsToSelect)} FROM ${this.allowed.table(tableName)}`;
+Values use bound parameters. SQL identifiers and keywords cannot be placeholders; resolve them only through application-owned mappings.
 
-    if (criteria.hasFilters()) {
-      query += " WHERE ";
-      const conditions = criteria.filters.value.map((filter) => {
-        const field = this.allowed.field(filter.field.value);
-        const operator = this.allowed.operator(filter.operator.value);
-        const value = filter.operator.isContains() || filter.operator.isNotContains()
-          ? `%${filter.value.value}%`
-          : filter.value.value;
-        params.push(value);
-        return `${field} ${operator} $${params.length}`;
-      });
-      query += conditions.join(" AND ");
-    }
+## Backend-Specific Conversion
 
-    if (criteria.hasOrder()) {
-      const field = this.allowed.field(criteria.order.orderBy.value);
-      const direction = this.allowed.direction(criteria.order.orderType.value);
-      query += ` ORDER BY ${field} ${direction}`;
-    }
+Converters preserve Criteria semantics or reject unsupported operations. Silent approximation is incorrect.
 
-    if (criteria.pageSize !== null) {
-      params.push(criteria.pageSize);
-      query += ` LIMIT $${params.length}`;
-      if (criteria.pageNumber !== null) {
-        params.push(criteria.pageSize * criteria.pageNumber);
-        query += ` OFFSET $${params.length}`;
+```typescript
+type SqlQuery = { readonly text: string; readonly params: readonly unknown[] };
+
+declare function escapeLikeLiteral(value: string): string;
+
+abstract class UserCriteriaToPostgres {
+  protected abstract order(sort: readonly Sort[]): string;
+  protected abstract pagination(page: Pagination, params: unknown[], sort: readonly Sort[]): string;
+  protected abstract requireField(field: LogicalField, operator: Operator, value: unknown): FieldDefinition;
+  protected abstract sqlOperator(operator: ScalarOperator): string;
+
+  protected predicate(node: Predicate, params: unknown[]): string {
+    switch (node.kind) {
+      case "comparison": return this.comparison(node, params);
+      case "isNull": return `${this.requireField(node.field, "isNull", null).sql} IS NULL`;
+      case "in": {
+        if (node.values.length === 0) throw new InvalidCriteria("in requires at least one value");
+        const field = this.requireField(node.field, "in", node.values).sql;
+        const placeholders = node.values.map((value) => { params.push(value); return `$${params.length}`; });
+        return `${field} IN (${placeholders.join(", ")})`;
+      }
+      case "not": return `NOT (${this.predicate(node.operand, params)})`;
+      case "and":
+      case "or": {
+        if (node.operands.length === 0) throw new InvalidCriteria(`${node.kind} requires operands`);
+        return `(${node.operands.map((operand) => this.predicate(operand, params)).join(` ${node.kind.toUpperCase()} `)})`;
       }
     }
+  }
 
-    return { text: `${query};`, params };
+  convert(criteria: Criteria): SqlQuery {
+    const params: unknown[] = [];
+    const where = criteria.predicate
+      ? this.predicate(criteria.predicate, params)
+      : "TRUE";
+    const order = this.order(criteria.sort);
+    const page = this.pagination(criteria.pagination, params, criteria.sort);
+
+    return {
+      text: `SELECT u.id, u.name, u.registered_at FROM users u WHERE ${where}${order}${page}`,
+      params,
+    };
+  }
+
+  protected comparison(node: Extract<Predicate, { kind: "comparison" }>, params: unknown[]): string {
+    const definition = this.requireField(node.field, node.operator, node.value);
+    const value = node.operator === "contains"
+      ? `%${escapeLikeLiteral(String(node.value))}%`
+      : node.value;
+    params.push(value);
+    return `${definition.sql} ${this.sqlOperator(node.operator)} $${params.length}`;
   }
 }
 ```
 
-`SqlAllowList` must reject unknown identifiers and map domain operators such as `CONTAINS`/`NOT_CONTAINS` to the database dialect's `LIKE`/`NOT LIKE`. If `%` and `_` should be literal characters, escape them and declare the SQL escape character explicitly.
+The remaining abstract helpers are repository/backend-specific. Cursor parsing must validate each decoded value against its sort field type. This example permits only non-null sortable fields; supporting nullable sort keys requires an explicit, backend-consistent null ordering encoded in the cursor. `contains` needs an explicit contract: literal substring, prefix, token match, or full-text search. SQL `LIKE`, Elasticsearch `match`, Mongo regex, and ORM `Like` are not automatically equivalent.
 
-**Practical heuristic:** The converter is an infrastructure concern — it belongs next to the repository implementation, not in the domain. If you need to support Elasticsearch or MongoDB later, you write a new converter, not a new domain interface.
+Backend capability examples:
 
----
+- SQL: collation, null ordering, `LIKE` escaping, and transaction isolation matter.
+- Elasticsearch: exact equality generally uses `term` on a keyword field; range uses `range`; analyzed `match` is not equality.
+- Mongo: escape literal regex input or use another indexed search strategy; merging objects can overwrite same-field predicates.
+- ORMs: use native expression APIs, but still validate logical fields/operators and test generated semantics.
 
-## Repository Interface with Criteria
+## Joins and Projections
 
-**Intent:** Expose a single `matching()` method on the repository instead of one method per query combination.
+Do not smuggle a complete `JOIN` clause through a table-name argument. A repository-specific adapter may own fixed joins and qualified field mappings. If joins are caller-composable, model a validated join/projection AST with aliases and cardinality, but prefer a dedicated read-model query port for cross-Aggregate results.
 
-**Example:**
+Pagination after one-to-many joins can duplicate roots. Decide whether pagination applies before or after deduplication and test missing relations, cardinality, qualified fields, sorting, and count semantics.
 
-```typescript
-// domain/CourseRepository.ts
-export interface CourseRepository {
-  save(course: Course): Promise<void>;
-  search(id: CourseId): Promise<Course | null>;
-  matching(criteria: Criteria): Promise<Course[]>;  // replaces findByName, findByCategory, etc.
-}
+## Pagination
 
-// infrastructure/PostgresCourseRepository.ts
-export class PostgresCourseRepository implements CourseRepository {
-  constructor(
-    private readonly connection: PostgresConnection,
-    private readonly converter: CriteriaToSqlConverter,
-  ) {}
+Offset and cursor pagination are different variants, not nullable fields on one bag.
 
-  async matching(criteria: Criteria): Promise<Course[]> {
-    const query = this.converter.convert(
-      ["id", "name", "summary", "categories", "published_at"],
-      "mooc.courses",
-      criteria,
-    );
-    const rows = await this.connection.query(query.text, query.params);
-    return rows.map(this.toAggregate);
-  }
-}
+### Offset
+
+Translate one-based HTTP pages explicitly:
+
+```text
+HTTP page N, perPage P -> internal limit P, offset (N - 1) * P
 ```
 
----
+Require a bounded limit and deterministic total order, including a unique tie-breaker. Offset pages can drift under concurrent inserts/deletes and become expensive at large offsets.
 
-## Using Criteria from the Application Layer
+### Cursor
 
-**Intent:** Allow controllers and use cases to build queries in domain terms, with HTTP query params translated at the boundary.
-
-**How it works:** The HTTP controller receives raw query string parameters and converts them to `Criteria` using `fromPrimitives`. The use case (or repository) receives a strongly-typed `Criteria` object and never sees the HTTP request.
-
-**Example:**
-
-```typescript
-// app/CoursesGetController.ts
-export class CoursesGetController {
-  async handle(req: Request): Promise<Response> {
-    const input = criteriaRequestSchema.parse(req.query); // validates JSON shape and allow-lists
-    const criteria = Criteria.fromPrimitives(
-      input.filters,
-      input.orderBy,
-      input.order,
-      input.pageSize,
-      input.pageNumber,
-    );
-    const courses = await this.repository.matching(criteria);
-    return Response.json(courses.map((c) => c.toPrimitives()));
-  }
-}
-```
-
-**Practical heuristic:** Parse and validate `Criteria` at the controller boundary. Validate JSON shape, recognized fields/operators, integer ranges, and a maximum page size before constructing the Value Object. Translate validation failures into a controlled client error rather than a database error.
-
----
-
-## Composable Criteria and Complex Filters
-
-**Intent:** Support complex queries (OR conditions, nested filters, joins) by extending the `Criteria` model.
-
-**How it works:** The `Filters` collection can be enhanced to support `OR` groups, not just `AND`. The course repo (`06-joins_with_criteria`, `07-complex_filters`) shows how to add a `FilterGroup` concept where each group's filters are ANDed and groups are ORed.
-
-**Practical heuristic:** Start with AND-only filters — they handle 90% of real use cases. Add OR/nested support only when a concrete query requires it, not speculatively.
-
----
-
-## Pagination Strategies
-
-**Intent:** Attach pagination to `Criteria` without leaking `LIMIT`/`OFFSET` into domain code.
-
-Two pagination strategies from the course:
-
-- **Offset pagination** (`pageSize` + `pageNumber`): Simple, works with any storage. Suffers from page drift on high-write collections (rows inserted between page 1 and page 2 fetches cause items to shift). Add `pageSize` and `pageNumber` to `Criteria`.
-
-- **Pointer/cursor pagination** (`pageSize` + cursor): Avoids offset drift when the cursor encodes every field in a stable total order. A timestamp alone is insufficient when values can tie; use a deterministic tie-breaker such as `(publishedAt, id)`.
-
-**Example (offset pagination in Criteria):**
-```typescript
-const criteria = Criteria.fromPrimitives(
-  [{ field: "status", operator: "=", value: "published" }],
-  "published_at",  // orderBy
-  "DESC",          // orderType
-  20,              // pageSize
-  0,               // pageNumber (first page)
-);
-```
-
-**Cursor/pointer pagination — production correction to the course's single-field example:**
-
-The simplified course variant replaces `pageNumber` with a `cursor: string | null` field and emits `WHERE orderBy < cursor` instead of `OFFSET`. In production, encode and validate all ordered values in the cursor, bind them as parameters, and include a unique tie-breaker. The shortened example below focuses on safe conversion; cursor encoding belongs at the delivery boundary.
+Cursor pagination requires a stable total order. Include every sort field plus a unique tie-breaker:
 
 ```sql
--- PostgreSQL, descending compound cursor (all values are bound parameters)
-SELECT id, name, published_at
-FROM courses
 WHERE (published_at, id) < ($1, $2)
 ORDER BY published_at DESC, id DESC
-LIMIT $3;
+LIMIT $3
 ```
 
-The cursor should encode both `$1` and `$2`; the delivery boundary decodes and validates it before constructing the Criteria. For ascending order, reverse the comparison consistently. Other databases may require the equivalent expanded predicate: `published_at < $1 OR (published_at = $1 AND id < $2)`.
+Reverse comparisons consistently for ascending order. Decode and validate opaque cursors at the delivery boundary; sign them when tampering changes authorization/scope. Bind cursor values, test duplicate sort keys and nulls, and return `nextCursor`/`hasMore` or equivalent navigation metadata.
 
-**Client usage — reading the next page (pseudocode; names depend on the delivery adapter):**
-```text
-// First page: no cursor
-const page1 = CompoundCursorCriteria.descending(
-  [], ["published_at", "id"], 20, null,
-);
+## Boundary Translation
 
-// Next page: cursor includes every ordered field.
-const last = results.at(-1);
-if (last !== undefined) {
-  const cursor = encodeAndSignCursor({ publishedAt: last.publishedAt, id: last.id });
-  const page2 = CompoundCursorCriteria.descending(
-    [], ["published_at", "id"], 20, cursor,
-  );
+HTTP parsing must use a strict allow-listed schema, then translate public query vocabulary to Criteria. Unknown parameters produce a controlled client error rather than being stripped silently. Preserve current filters/order in navigation links or cursor context.
+
+Do not expose a generic field/operator DSL publicly unless its grammar, limits, authorization, complexity budget, and compatibility are deliberate API contracts. Purpose-specific parameters are usually safer.
+
+## Named Searches
+
+When a Criteria composition gains business meaning, give it a name:
+
+```typescript
+class PossibleScamUsersCriteria {
+  static create(now: Instant): Criteria {
+    return new Criteria(/* named, tested predicate tree */, /* order */, /* bounded page */);
+  }
 }
 ```
 
-**Practical heuristic:** Use offset pagination by default. Switch to cursor pagination only when the collection is large and high-write, or when "infinite scroll" UX requires stable results between fetches. Cursor pagination requires a mandatory `orderBy` — enforce this at construction time (as the course does).
+If this becomes a stable capability rather than dynamic query composition, an explicit query method/service may communicate better than exposing the Criteria factory.
 
----
+## Testing Strategy
 
-## Testing Criteria-Based Repositories
+Use separate layers:
 
-**Intent:** Verify that a `Criteria` produces the correct results without coupling tests to SQL strings.
+1. Parser/validation tests reject unknown fields/operators, wrong types, malformed nesting, excessive depth/filters, invalid page sizes, and bad cursors.
+2. AST tests prove immutable construction and boolean truth tables.
+3. Application tests assert the intended Criteria reaches the query port.
+4. Shared semantics contracts run representative datasets against each backend adapter.
+5. Backend integration tests prove every supported operator, null/collation behavior, wildcard escaping, same-field predicates, ordering, joins, and pagination.
+6. Adversarial tests execute quote/wildcard/identifier payloads against disposable infrastructure and prove they remain data.
 
-**How it works:** Write tests against the in-memory fake repository that implements the same `Criteria`-based filtering in memory (useful for unit tests), plus integration tests against the real database implementation. The Criteria objects themselves are Value Objects and can be equality-tested directly.
+Keep a few exact converter serialization tests, but do not rely on whitespace-sensitive strings as evidence of behavior. An in-memory fake cannot prove SQL, analyzer, collation, ORM, index, or cursor semantics.
 
-**Example:**
-```typescript
-// Unit test — Criteria construction and filtering
-it("filters courses by status", async () => {
-  const repo = new InMemoryCourseRepository();
-  await repo.save(aCourseWith({ id: "1", status: "published" }));
-  await repo.save(aCourseWith({ id: "2", status: "draft" }));
+## Review Checklist
 
-  const criteria = Criteria.fromPrimitives(
-    [{ field: "status", operator: "=", value: "published" }],
-    null, null, null, null,
-  );
+- Is Criteria justified by dynamic combinations rather than method count?
+- Does its layer match its vocabulary?
+- Is boolean structure a typed AST rather than a raw string?
+- Are collections immutable and values correctly typed?
+- Are fields/operators/sorts allow-listed per adapter?
+- Are only values parameterized while identifiers come from mappings?
+- Does every backend preserve or explicitly reject each operator?
+- Are joins and projections repository/read-model owned?
+- Is pagination bounded, deterministic, and represented by distinct variants?
+- Do real-adapter tests cover security and semantic edge cases?
 
-  const results = await repo.matching(criteria);
-  expect(results).toHaveLength(1);
-  expect(results[0].id.value).toBe("1");
-});
-```
+## Course Caveats
 
-**Practical heuristic:** Integration-test every supported operator and pagination strategy against the real database, including injection attempts and tied cursor fields. Use an in-memory implementation for fast application tests, but do not treat it as proof of SQL conversion, collation, null ordering, constraints, or transaction behavior.
-
----
-
-## Related Patterns
-
-- **Specification** (Evans DDD): Criteria is a generalization of Specification that adds sorting and pagination to the predicate concept. Use Specification for boolean pass/fail checks within the domain; use Criteria for repository queries.
-- **Repository**: The natural consumer of Criteria — the `matching(criteria)` method replaces ad-hoc query methods.
-- **Query Object** (PoEAA Fowler): Criteria is a domain-idiomatic Query Object — same structural idea but expressed in domain terms rather than raw SQL fragments.
+Use the course for its evolution across SQL, Elasticsearch, joins, nested filters, ORMs, Mongo, Doctrine, Hibernate, and extracted libraries. Reviewed snapshots also include SQL interpolation, invalid identifier placeholders (`ORDER BY ? ?`), wrong `toPrimitives()` values, unchecked enum casts, untyped string DSL parsing, unstable cursors, join fragments hidden as table names, backend operator drift, regex injection risk, ignored ORM pagination, incomplete package migration, and tests that codify invalid query shapes.

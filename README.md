@@ -60,6 +60,7 @@ Pattern selection and application guidance for OO systems.
 - All 23 GoF patterns (behavioral, creational, structural)
 - All 51 PoEAA enterprise patterns (Transaction Script, Data Mapper, Unit of Work, Repository, Gateway, DTO, Money, Special Case, and more)
 - Criteria pattern (composable filters, ordering, pagination)
+- Typed Criteria ASTs, backend capability mappings, safe SQL conversion, joins, and stable cursors
 - Clean Architecture layers and the Dependency Rule
 - Kent Beck's Implementation Patterns
 - Examples in TypeScript, Java, Python, C#, Ruby, PHP, Go, and Rust
@@ -105,6 +106,7 @@ Test-Driven Development guidance for driving implementation from tests.
 - Value Object contract tests: equality laws, defensive copies, normalization, and round trips
 - Domain Event, subscriber, Event Bus, Outbox/Inbox, and CDC contract tests
 - Typed error/Result composition, exhaustive mapping, redaction, and unknown-failure tests
+- Criteria parser/AST, backend semantics, injection, joins, and pagination traversal tests
 - Examples in TypeScript, Java, Python, C#, Ruby, PHP, Go, and Rust
 
 ### fp-best-practices

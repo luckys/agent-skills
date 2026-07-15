@@ -571,74 +571,41 @@ async findById(id: CourseId): Promise<Nullable<Course>> { ... }
 
 ## Criteria Pattern — Flexible Repository Queries
 
-**Intent:** Express repository search conditions as domain objects (not raw SQL or query strings) so the domain layer can construct complex queries without depending on infrastructure.
+**Intent:** Express genuinely dynamic query conditions without exposing SQL or storage syntax. Keep stable business searches as named methods and use a read-model query port for projections.
 
-**How it works:** `Criteria` composes `Filters` (a list of `Filter` objects) and an `Order`. Each `Filter` holds a `FilterField` (the attribute name), a `FilterOperator` (enum: `=`, `!=`, `>`, `<`, `CONTAINS`, `NOT_CONTAINS`), and a `FilterValue`. Repository adapters translate `Criteria` to their native query language (SQL WHERE clauses, Elasticsearch DSL, etc.).
+**How it works:** A validated immutable Criteria carries a typed predicate tree, stable logical fields, order, and one bounded pagination variant. Infrastructure maps logical fields/operators to backend-native expressions and rejects unsupported semantics.
 
 **Example:**
 ```typescript
-// src/Contexts/Shared/domain/criteria/Criteria.ts
-export class Criteria {
-  readonly filters: Filters;
-  readonly order: Order;
-  readonly limit?: number;
-  readonly offset?: number;
+type Predicate =
+  | { readonly kind: "comparison"; readonly field: "name" | "publishedAt" | "id"; readonly operator: "eq" | "contains" | "gt"; readonly value: string }
+  | { readonly kind: "and"; readonly operands: readonly Predicate[] };
 
-  constructor(filters: Filters, order: Order, limit?: number, offset?: number) {
-    this.filters = filters;
-    this.order = order;
-    this.limit = limit;
-    this.offset = offset;
-  }
+type Criteria = Readonly<{
+  readonly predicate: Predicate | null;
+  readonly order: readonly { field: "publishedAt" | "id"; direction: "asc" | "desc" }[];
+  readonly page: { readonly limit: number; readonly offset: number };
+}>;
 
-  public hasFilters(): boolean {
-    return this.filters.filters.length > 0;
-  }
+class InvalidCriteria extends Error {}
+
+function courseCriteria(input: Criteria): Criteria {
+  if (!Number.isInteger(input.page.limit) || input.page.limit < 1 || input.page.limit > 100) throw new InvalidCriteria();
+  if (!Number.isInteger(input.page.offset) || input.page.offset < 0) throw new InvalidCriteria();
+  if (input.order.at(-1)?.field !== "id") throw new InvalidCriteria();
+  return Object.freeze({
+    predicate: input.predicate,
+    order: Object.freeze(input.order.map((item) => Object.freeze({ ...item }))),
+    page: Object.freeze({ ...input.page }),
+  });
 }
 
-// src/Contexts/Shared/domain/criteria/Filter.ts
-export class Filter {
-  readonly field: FilterField;
-  readonly operator: FilterOperator;
-  readonly value: FilterValue;
-
-  constructor(field: FilterField, operator: FilterOperator, value: FilterValue) { ... }
-
-  static fromValues(values: Map<string, string>): Filter {
-    const field = values.get('field');
-    const operator = values.get('operator');
-    const value = values.get('value');
-    if (!field || !operator || !value) {
-      throw new InvalidArgumentError('The filter is invalid');
-    }
-    return new Filter(
-      new FilterField(field),
-      FilterOperator.fromValue(operator),
-      new FilterValue(value)
-    );
-  }
-}
-
-// src/Contexts/Shared/domain/criteria/FilterOperator.ts
-export enum Operator {
-  EQUAL = '=',
-  NOT_EQUAL = '!=',
-  GT = '>',
-  LT = '<',
-  CONTAINS = 'CONTAINS',
-  NOT_CONTAINS = 'NOT_CONTAINS'
-}
-
-export class FilterOperator extends EnumValueObject<Operator> {
-  static fromValue(value: string): FilterOperator { ... }
-  static equal() { return this.fromValue(Operator.EQUAL); }
-  public isPositive(): boolean {
-    return this.value !== Operator.NOT_EQUAL && this.value !== Operator.NOT_CONTAINS;
-  }
+interface CourseRepository {
+  matching(criteria: Criteria): Promise<readonly Course[]>;
 }
 ```
 
-**Practical heuristic:** The domain builds `Criteria` objects; infrastructure translates them. No `WHERE` clause or Elasticsearch DSL ever appears in the domain layer.
+**Practical heuristic:** Criteria's layer follows its vocabulary: domain-named selectors may live with an Aggregate repository; generic filters belong to the application/query core. No HTTP parameter, SQL identifier, or Elasticsearch DSL belongs in this contract. Use `design-patterns-best-practices` for converter, pagination, and testing details.
 
 ---
 

@@ -1,6 +1,6 @@
 ---
 name: tdd-best-practices
-description: Test-Driven Development guidance. Use when writing tests before implementation, applying Red-Green-Refactor, testing Value Object contracts, typed domain failures/Results, DDD Aggregates, Domain Events/subscribers, repository contracts or persistence adapters, choosing between test doubles, deciding test granularity, practicing outside-in or inside-out TDD, reviewing test suite quality, or diagnosing brittle tests.
+description: Test-Driven Development guidance. Use when writing tests before implementation, applying Red-Green-Refactor, testing Value Object contracts, typed domain failures/Results, DDD Aggregates, Domain Events/subscribers, Criteria/query adapters, repository contracts or persistence adapters, choosing between test doubles, deciding test granularity, practicing outside-in or inside-out TDD, reviewing test suite quality, or diagnosing brittle tests.
 license: MIT
 metadata:
   author: luckys
@@ -27,12 +27,12 @@ GREEN  → Write the minimum code to make it pass.
 REFACTOR → Clean up both the code and the test — no new behavior.
 ```
 
-The discipline is in the order. Never refactor on Red. Never add behavior on Green.
+The discipline is in the order. Never refactor on Red. On Green, add only the behavior demanded by the current failing test.
 
 ### The 3 Laws (Uncle Bob)
 
 1. You may not write production code unless you have a failing unit test.
-2. You may not write more of a unit test than is sufficient to fail (including compilation failures).
+2. You may not write more of a unit test than is sufficient to fail. An intentionally missing public API/type can be a valid first Red; unrelated compilation or setup failures are not.
 3. You may not write more production code than is sufficient to make the currently failing test pass.
 
 ## Design Workflow
@@ -56,7 +56,7 @@ Start with units for logic-heavy code. Start with acceptance tests when followin
 ## Heuristics
 
 ### When to mock
-Mock when the collaborator has I/O, non-determinism, or a slow/external dependency. Use real objects when collaborators are pure domain logic.
+Mock or fake I/O boundaries in unit/application tests. Use real disposable infrastructure in adapter integration tests where SQL, collation, constraints, search analyzers, transactions, or protocol behavior are the subject.
 
 ### When testing an Aggregate
 Use real Value Objects and child Entities. Test commands through the root, including the rule that a rejected command leaves both state and pending events unchanged.
@@ -68,13 +68,13 @@ Assert exact facts after Act: type/name, aggregate identity, business payload, c
 Test the applicable public contract: semantic equality with distinct instances, exact invariant boundaries, and any exposed normalization, hashing, defensive-copy, operation, or serialization behavior. Inject clocks or policies instead of reading ambient context.
 
 ### When a test is too big
-If setup takes longer than the assertion, the test is covering too much. Split by behavior.
+Large setup is a signal to review fixture clarity and test scope, not proof that the test is too big. Split when multiple behaviors or failure reasons are coupled.
 
 ### When tests break on every refactor
 Tests are coupled to implementation, not behavior. Move the assertion to the public API surface.
 
 ### When you can't write a test first
-The design is too coupled. A class that is hard to test is a design problem, not a testing problem.
+Treat difficulty writing a test first as a design or boundary signal; legacy constraints, framework coupling, or missing seams may require characterization tests before redesign.
 
 ## Warning Signs
 
@@ -96,6 +96,7 @@ The design is too coupled. A class that is hard to test is a design problem, not
 - Read `references/aggregate-testing.md` for invariant-first Aggregate tests, repository contract and adapter tests, including atomic failures, deterministic Mothers, collection equality, transaction propagation, and concurrency integration tests.
 - Read `references/domain-event-testing.md` for Aggregate event assertions, application handoff, subscriber and real-bus tests, Outbox/Inbox delivery tests, Integration Event contracts, and CDC mapping tests.
 - Read `references/domain-error-testing.md` for typed failure assertions, Result short-circuit tests, exhaustive boundary mappings, public redaction, unknown 500 behavior, Effect execution, and error-test-double caveats.
+- Read `references/criteria-testing.md` for parser/AST tests, shared query semantics, real-adapter operator/security tests, pagination traversal, joins, nested boolean filters, and false-confidence warnings.
 
 ## Related Skills
 
@@ -120,3 +121,4 @@ This skill is synthesized from:
 - [CodelyTV Repository Pattern course](https://github.com/CodelyTV/repository_pattern-course) (including repository-double and integration-test counterexamples)
 - [CodelyTV Domain Events course](https://github.com/CodelyTV/domain_modeling-domain_events-course) (including self-asserting-double and Event Bus coverage counterexamples)
 - [CodelyTV Domain Modeling Errors course](https://github.com/CodelyTV/domain_modeling-errors-course) (including Result, Effect, stale-contract, and mock counterexamples)
+- [CodelyTV Criteria Pattern course](https://github.com/CodelyTV/design_patterns-criteria-course) (including converter, pagination, injection, and test-coverage counterexamples)

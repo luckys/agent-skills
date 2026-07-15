@@ -138,8 +138,10 @@ The cursor encodes the position in the result set (typically the ID or a composi
 
 ### Rules for both approaches
 
-- Never return an unbounded collection. Always require a limit.
+- Never return an unbounded collection. Require a bounded limit or apply a documented bounded default.
 - Define and document the maximum page size (e.g., max `perPage=100`).
+- Use a deterministic total order; cursor pagination must include every sort key plus a unique tie-breaker.
+- Decode and validate opaque cursors. Sign them when tampering can alter authorization or query scope.
 - Apply the same pagination shape consistently across all collection endpoints.
 - Return an empty array (not 404) when a collection exists but has no items.
 

@@ -73,7 +73,7 @@ interface ShipmentRepository {
 }
 ```
 
-Use Criteria or Specification when methods multiply only because filters, ordering, and pagination combine dynamically. Keep field and operator allow-lists in the adapter and bind all values as query parameters. Use a dedicated read model when the result crosses Aggregates, computes reports, or has a consumer-specific shape.
+Use Criteria or Specification when filters, ordering, and pagination combine dynamically. Generic technical Criteria normally belongs to an application query/read-model port; put it in an Aggregate repository contract only when selectors use genuine domain vocabulary. Keep field/operator mappings in the adapter and bind all values as query parameters. Use a dedicated read model when the result crosses Aggregates, computes reports, or has a consumer-specific shape.
 
 Make hidden query policy explicit. Page size, ordering, similarity semantics, and cursor behavior belong in named parameters/value objects or result types, not as undocumented adapter constants.
 

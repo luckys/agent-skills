@@ -174,26 +174,55 @@ app.use((err: unknown, req: Request, res: Response, _next: NextFunction) => {
 ## Pagination
 
 ```typescript
-// Query params parsed and validated
-const PaginationSchema = z.object({
-  page:    z.coerce.number().int().positive().default(1),
-  perPage: z.coerce.number().int().positive().max(100).default(25),
-});
+const singlePositiveInt = (max: number) => z.preprocess(
+  (raw) => typeof raw === "string" && /^\d+$/.test(raw) ? Number(raw) : raw,
+  z.number().int().safe().positive().max(max),
+);
+
+// Strict public query contract: unknown, repeated, fractional, and excessive values are rejected.
+const ListOrdersQuerySchema = z.object({
+  page: singlePositiveInt(100_000).default(1),
+  perPage: singlePositiveInt(100).default(25),
+  status: z.enum(["pending", "confirmed", "shipped", "cancelled"]).optional(),
+  customerId: z.string().uuid().optional(),
+  createdAfter: z.string().datetime().optional(),
+  createdBefore: z.string().datetime().optional(),
+  sort: z.enum(["createdAt", "total", "status"]).default("createdAt"),
+  order: z.enum(["asc", "desc"]).default("desc"),
+}).strict();
 
 async function listOrders(req: Request, res: Response) {
-  const { page, perPage } = PaginationSchema.parse(req.query);
+  const query = ListOrdersQuerySchema.parse(req.query);
+  const { page, perPage, sort, order, ...filters } = query;
+  // HTTP pages are one-based; the query port uses a zero-based offset.
   const offset = (page - 1) * perPage;
 
-  const [orders, total] = await orderRepo.findMany({ offset, limit: perPage });
+  const [orders, total] = await orderQueries.findMany({
+    filters,
+    order: [
+      { field: sort, direction: order },
+      { field: "id", direction: order }, // stable unique tie-breaker
+    ],
+    offset,
+    limit: perPage,
+  });
   const totalPages = Math.ceil(total / perPage);
-  const base = `${req.baseUrl}/orders`;
+  const base = req.originalUrl.split("?")[0];
+  const linkTo = (targetPage: number) => {
+    const params = new URLSearchParams({
+      ...Object.fromEntries(Object.entries({ ...filters, sort, order }).filter(([, value]) => value !== undefined).map(([key, value]) => [key, String(value)])),
+      page: String(targetPage),
+      perPage: String(perPage),
+    });
+    return `${base}?${params}`;
+  };
 
-  const links: string[] = [
-    `<${base}?page=1&perPage=${perPage}>; rel="first"`,
-    `<${base}?page=${totalPages}&perPage=${perPage}>; rel="last"`,
-  ];
-  if (page > 1)          links.push(`<${base}?page=${page - 1}&perPage=${perPage}>; rel="prev"`);
-  if (page < totalPages) links.push(`<${base}?page=${page + 1}&perPage=${perPage}>; rel="next"`);
+  const links: string[] = [];
+  if (totalPages > 0) {
+    links.push(`<${linkTo(1)}>; rel="first"`, `<${linkTo(totalPages)}>; rel="last"`);
+    if (page > 1) links.push(`<${linkTo(page - 1)}>; rel="prev"`);
+    if (page < totalPages) links.push(`<${linkTo(page + 1)}>; rel="next"`);
+  }
 
   res
     .header("Link", links.join(", "))
@@ -203,24 +232,7 @@ async function listOrders(req: Request, res: Response) {
 }
 ```
 
-## Filtering and Sorting
-
-```typescript
-const OrderFilterSchema = z.object({
-  status:    z.enum(["pending", "confirmed", "shipped", "cancelled"]).optional(),
-  customerId: z.string().uuid().optional(),
-  createdAfter:  z.string().datetime().optional(),
-  createdBefore: z.string().datetime().optional(),
-  sort:      z.enum(["createdAt", "total", "status"]).default("createdAt"),
-  order:     z.enum(["asc", "desc"]).default("desc"),
-});
-
-async function listOrders(req: Request, res: Response) {
-  const filter = OrderFilterSchema.parse(req.query);
-  const orders = await orderRepo.findMany(filter);
-  res.json(orders);
-}
-```
+Filtering, sorting, and pagination are one contract so every collection query remains bounded and navigation preserves the active query.
 
 ## Authentication Middleware (JWT)
 

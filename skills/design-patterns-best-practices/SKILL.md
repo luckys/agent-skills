@@ -122,7 +122,7 @@ Use `ddd-best-practices` when the main decision is Aggregate repository semantic
 - Read `references/patterns-in-practice.md` for practical heuristics on refactoring toward patterns, Observer lessons, Command Bus, Result pattern, and DI container internals.
 - Read `references/implementation-patterns.md` for Kent Beck's micro-level code patterns: naming, composed methods, guard clauses, value objects, lazy/eager initialization, collection accessors, and method objects.
 - Read `references/clean-architecture.md` for Clean Architecture layers (Entities, Use Cases, Interface Adapters, Frameworks), the Dependency Rule, Ports & Adapters, Skinny Controllers, and SOLID as architecture enablers.
-- Read `references/criteria-pattern.md` for the Criteria pattern: composable filters (field + operator + value), ordering, pagination, CriteriaToSqlConverter in infrastructure, and Criteria.fromPrimitives() for HTTP query params.
+- Read `references/criteria-pattern.md` for Criteria/query-object decisions, typed predicate ASTs, logical field mappings, backend capabilities, SQL parameterization, joins, pagination, boundary translation, and adapter testing.
 
 ## Related Skills
 
@@ -139,3 +139,4 @@ This skill is synthesized from ideas emphasized in:
 - `Drive Into Design Patterns`
 - `Practical Object-Oriented Design in Ruby` by Sandi Metz
 - `Implementation Patterns` by Kent Beck
+- [CodelyTV Criteria Pattern course](https://github.com/CodelyTV/design_patterns-criteria-course) (including multi-backend and security counterexamples)
