@@ -1,6 +1,6 @@
 # Testing Domain Events
 
-Source: lessons and counterexamples from [CodelyTV/domain_modeling-domain_events-course](https://github.com/CodelyTV/domain_modeling-domain_events-course), corrected for behavior-focused tests.
+Sources: lessons and counterexamples from [CodelyTV/domain_modeling-domain_events-course](https://github.com/CodelyTV/domain_modeling-domain_events-course) and [CodelyTV/ddd_problems-domain_events_errors_handling-course](https://github.com/CodelyTV/ddd_problems-domain_events_errors_handling-course), corrected for behavior-focused and failure-focused tests.
 
 ## Aggregate Event Tests
 
@@ -56,7 +56,13 @@ Use real disposable infrastructure to prove:
 - broker success followed by relay crash remains safely retryable;
 - Inbox/deduplication and business effect share one transaction;
 - stale source versions are rejected or ignored according to policy;
+- out-of-order gaps are buffered/retried without acknowledging lost work;
+- restart and concurrent replicas preserve durable ordering/deduplication state;
 - retries classify transient vs permanent failures;
+- retry publication failure leaves the original delivery recoverable;
+- positive/negative confirms, unroutable messages, and ambiguous broker timeouts preserve recoverability;
+- empty polling backs off and backlog growth triggers the defined overload policy;
+- poison messages do not silently stall unrelated partitions;
 - dead-letter replay preserves message identity.
 
 At-least-once delivery requires duplicate-delivery tests. A single happy-path consumer test is insufficient.
@@ -71,4 +77,6 @@ CDC mapping needs contract tests for each table/action pair, old/new row shape, 
 
 ## Course Caveats
 
-The course contains many copied tests and self-asserting doubles. Several positive tests can remain green if save, publish, or send is removed; the concrete Event Bus and external-event filter have no direct tests. Treat its fixtures as modeling examples, not evidence of TDD discipline.
+The domain-modeling course contains many copied tests and self-asserting doubles. Several positive tests can remain green if save, publish, or send is removed; the concrete Event Bus and external-event filter have no direct tests. Treat its fixtures as modeling examples, not evidence of TDD discipline.
+
+The error-handling course presents progressive failure snapshots, not production-ready queue infrastructure. Do not copy its process-local timestamp ordering guard, mutable retry headers, republish-without-confirm flow, or SQL consumer that repeatedly selects rows without recording completion. Tests should kill/restart workers and fail each boundary between effect, Inbox, retry publish, acknowledgement, and dead-letter transition.

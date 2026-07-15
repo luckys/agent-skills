@@ -1,6 +1,6 @@
 # Event Delivery Infrastructure
 
-Sources: CodelyTV event-bus courses and [domain_modeling-domain_events-course](https://github.com/CodelyTV/domain_modeling-domain_events-course), corrected for transaction, retry, and consumer semantics.
+Sources: CodelyTV event-bus courses, [domain_modeling-domain_events-course](https://github.com/CodelyTV/domain_modeling-domain_events-course), and [ddd_problems-domain_events_errors_handling-course](https://github.com/CodelyTV/ddd_problems-domain_events_errors_handling-course), corrected for transaction, retry, ordering, and consumer semantics.
 
 This reference owns transport and reliability. The domain owns which facts occurred; the application translates public contracts; infrastructure delivers them.
 
@@ -98,11 +98,17 @@ COMMIT;
 
 Back this with `UNIQUE (message_id, consumer)`. An Inbox committed before a local effect can lose work; committed after it can duplicate work. Both can be atomic only when the effect uses the same transactional database. For email, payment, or another remote system, use a provider idempotency key or persist a durable intent/outbox and reconcile uncertain outcomes.
 
+Transport deduplication and semantic idempotency are different. An Inbox rejects the same message ID, while a business rule may require uniqueness by another key, such as one course creation per course ID. Use both when needed. Protect semantic uniqueness with a database constraint, atomic upsert, or conditional write; check-then-insert alone races under concurrent consumers.
+
 ## Ordering and Versioning
 
 Brokers may provide ordering only within documented scopes such as a partition or queue. Define the partition key and required order explicitly.
 
 Use aggregate version/source sequence or stream position for causal ordering. Wall-clock `occurredAt` is not reliable across machines. Consumers can reject stale versions, buffer gaps, rebuild a projection, or use commutative operations according to business semantics.
+
+Persist a consumer's last applied source version with the projection and advance both atomically using an expected-version conditional update or transactional lock. Merely storing the version still lets replicas race and commit stale effects. An in-process map keyed by Aggregate ID loses its ordering guard on restart, is not shared by replicas, and can advance even if the projection write fails. Comparing timestamps in such a map does not repair these faults.
+
+Do not treat a missing predecessor as a permanent invalid message. A later event may have arrived first. Buffer it durably, retry with a bounded policy, or rebuild from an authoritative ordered stream; acknowledge it only after the chosen policy has durably recorded the outcome.
 
 Do not solve ordering by dumping the entire Aggregate into every message without a consumer and compatibility reason.
 
@@ -118,11 +124,23 @@ Classify failures:
 
 Dead-letter insert and source completion should be atomic where possible. A broker DLQ route is not itself a multi-attempt retry topology; configure delayed retry queues/policies explicitly.
 
+Republishing to a retry exchange and then acknowledging the original is another dual write. Require durable messages/queues, publisher confirms, unroutable-message detection such as mandatory returns, and a documented at-least-once retry/dead-letter mechanism; a positive confirm alone may still describe an unroutable message. Acknowledge the source only after the retry copy is durably accepted. Preserve headers without mutating a shared message object, cap header growth, and derive attempts from trusted broker/application metadata.
+
 ## Broker Relay
 
 Use a broker for lower latency, service fan-out, partitioning, and operational tooling when its complexity is justified. The relay publishes versioned Integration Events from the Outbox. Consumers acknowledge only after their effect and Inbox commit.
 
 One durable queue per subscriber is a useful default. Bind multiple event types to it when one subscriber intentionally handles them.
+
+A database-backed queue also needs per-delivery state. Selecting the oldest rows in a loop without claiming and marking/deleting them replays the same batch forever; clearing the ORM session changes no queue state. Define pending, claimed, completed, retry, and dead-letter transitions, including lease recovery after worker crashes.
+
+## Backlog and Consumer Lifecycle
+
+Bound batch size and concurrency according to downstream capacity. Back off empty polling, expose queue depth and oldest-message age, and alert on lag rather than only failures. A poison message must not block every later partition indefinitely; quarantine it according to the ordering policy. Define retention/archival, graceful shutdown that stops new claims and finishes or releases leases, and overload behavior before production traffic.
+
+## Broker-First Fallback Is Not an Outbox
+
+Do not publish to a broker and write to a database only when the client throws. A timeout has an ambiguous outcome, a send without confirms may not be durable, and an accepted but unroutable message may still disappear. The fallback is also not atomic with the Aggregate write and can create duplicates or gaps. Write the message to an Outbox in the Aggregate transaction, then relay it; reconcile ambiguous broker outcomes with the same stable message ID.
 
 ## Change Data Capture
 
@@ -159,4 +177,6 @@ Prefer an application Outbox once the writer can change.
 - Is ordering scope defined with a source sequence/version?
 - Are retryable and permanent failures classified?
 - Are dead-letter replay and observability operationally defined?
+- Is retry republishing confirmed before the original delivery is acknowledged?
+- Is ordering/deduplication state durable and committed with the projection?
 - Does CDC translate row changes rather than pretending they are Domain Events?
