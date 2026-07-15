@@ -1,6 +1,6 @@
 ---
 name: ddd-best-practices
-description: Domain-Driven Design guidance for modeling complex domains. Use when designing Bounded Contexts or Subdomains, defining Aggregates or Aggregate Roots, choosing between Entities and Value Objects, applying Context Mapping patterns (ACL, Open Host Service, Partnership), implementing CQRS or Event Sourcing, building a Ubiquitous Language, applying Hexagonal Architecture (Ports & Adapters), or reviewing whether domain logic leaks into infrastructure or application layers.
+description: Domain-Driven Design guidance for modeling complex domains. Use when designing Bounded Contexts or Subdomains, discovering Aggregate boundaries from invariants and transactions, defining Aggregate Roots, splitting oversized Aggregates, choosing between Entities, Value Objects, and Domain Services, coordinating cross-Aggregate consistency, applying Context Mapping patterns, implementing CQRS or Event Sourcing, building a Ubiquitous Language, applying Hexagonal Architecture, or reviewing whether domain logic leaks into infrastructure or application layers.
 license: MIT
 metadata:
   author: luckys
@@ -33,10 +33,11 @@ Use this skill when the main question is how to model a domain, where to draw bo
    - Define context relationships explicitly (Partnership, Customer-Supplier, Anti-Corruption Layer, etc.).
 
 3. **Design Aggregates.**
+   - Start from one business command and state the invariants it must preserve.
+   - Include only state that must commit or reject atomically.
    - Each Aggregate has one root Entity that controls access.
-   - Enforce invariants within the Aggregate boundary only.
-   - Reference other Aggregates by identity (ID), never by object reference.
-   - Keep Aggregates small — if it spans multiple tables, reconsider.
+   - Reference other Aggregates by identity and make eventual consistency explicit.
+   - Check lifecycle, cardinality, contention, and concurrency; table count does not define the boundary.
 
 4. **Model with tactical patterns.**
    - Entity: has identity that persists over time.
@@ -49,7 +50,7 @@ Use this skill when the main question is how to model a domain, where to draw bo
 5. **Integrate contexts.**
    - Translate at boundaries — never let one context's model pollute another.
    - Use Anti-Corruption Layers when consuming upstream models you don't control.
-   - Publish Domain Events for cross-context communication.
+   - Translate internal Domain Events into stable Integration Events before crossing a context boundary.
 
 ## Heuristics
 
@@ -57,7 +58,7 @@ Use this skill when the main question is how to model a domain, where to draw bo
 Draw the boundary where the Ubiquitous Language changes — the same word meaning different things is a signal for a boundary.
 
 ### Aggregate
-If two objects must always be consistent together, they belong in the same Aggregate. If eventual consistency is acceptable, they belong in different Aggregates.
+If a recognized business invariant requires two objects to commit or reject together, they likely belong in the same Aggregate. Do not confuse a convenient synchronous workflow with an invariant. If temporary inconsistency has an acceptable recovery path, prefer separate Aggregates.
 
 ### Entity vs Value Object
 If you track it over time or need to distinguish between two instances with the same data, it's an Entity. If all that matters is its value, it's a Value Object.
@@ -79,9 +80,15 @@ One Repository per Aggregate Root. Never expose a Repository for child entities 
 - Ubiquitous Language drift: code uses different terms from the domain experts.
 - Application Service doing domain logic instead of orchestrating domain objects.
 - Repository returning arbitrary queries instead of meaningful collection operations.
+- One transaction routinely modifies multiple Aggregate Roots without a documented invariant.
+- Public setters or mutable child collections let callers bypass the Aggregate Root.
+- Repository access exists for a child Entity inside an Aggregate.
+- Aggregate boundaries mirror ORM relationships, UI screens, or table layouts.
+- A global uniqueness rule is checked only in memory, without a concurrent persistence constraint.
 
 ## References
 
+- Read `references/aggregates.md` for Aggregate discovery, boundary signals, rule ownership, creation vs. reconstitution, concurrency, cross-Aggregate coordination, persistence, and review checklists.
 - Read `references/tactical-patterns.md` for Entities, Value Objects, Aggregates, Domain Services, Domain Events, Repositories, Factories.
 - Read `references/strategic-design.md` for Subdomains (Core/Supporting/Generic), Bounded Contexts, and Ubiquitous Language.
 - Read `references/context-mapping.md` for Context Map patterns: Partnership, Shared Kernel, Customer-Supplier, Conformist, ACL, Open Host Service, Published Language.
@@ -98,6 +105,8 @@ One Repository per Aggregate Root. Never expose a Repository for child entities 
 - Use `oop-best-practices` for everyday object design within a Bounded Context.
 - Use `design-patterns-best-practices` for GoF and enterprise patterns inside the domain.
 - Use `refactoring-best-practices` when evolving an existing domain model safely.
+- Use `tdd-best-practices` for invariant-first Aggregate tests, deterministic fixtures, and concurrency integration tests.
+- Use `infrastructure-design` for transaction boundaries, optimistic locking, and reliable Outbox implementation.
 - Use `rest-api-best-practices` when exposing the domain through an HTTP API and translating domain errors to status codes.
 
 ## Source Influences
@@ -111,3 +120,4 @@ This skill is synthesized from:
 - *Patterns, Principles, and Practices of Domain-Driven Design* by Scott Millett & Nick Tune
 - *Hexagonal Architecture Explained* by Alistair Cockburn & Juan Manuel Garrido de Paz
 - *DDD in PHP* (community resource)
+- [CodelyTV Aggregates course](https://github.com/CodelyTV/aggregates-course)

@@ -124,7 +124,7 @@ Patterns for separating reads from writes, communicating through events, and mod
 
 **Related patterns:** Domain Events (the signals sagas listen to), Outbox Pattern (ensures saga-issued commands are executed reliably), Process Manager (stateful extension of the saga pattern), Aggregates (sagas coordinate between aggregate boundaries).
 
-**Practical heuristic:** If you find yourself needing strongly consistent data across two aggregates managed by a saga, that is a signal your aggregate boundaries are wrong — consider merging those aggregates before reaching for a saga.
+**Practical heuristic:** If you find yourself needing strongly consistent data across two aggregates managed by a saga, review the boundary with `aggregates.md` before reaching for coordination. A saga can manage recovery and eventual consistency, but cannot make separate commits atomic.
 
 ---
 
@@ -132,7 +132,7 @@ Patterns for separating reads from writes, communicating through events, and mod
 
 **Intent:** Guarantee that domain or integration events are published to external systems reliably, even if the process fails after committing a database transaction but before sending the message.
 
-**How it works:** Instead of publishing events directly to a message bus within the same transaction as the domain state change (which creates a dual-write problem), the aggregate persists both its state change and the outgoing events to the same database transaction — typically in a dedicated "outbox" table. A separate background relay process polls the outbox, reads unpublished events, publishes them to the message bus, and marks them as sent. Because the outbox write and the domain state change share a single transaction, they are atomic. The relay can safely retry on failure since publishing is idempotent from the message bus's perspective (consumers must handle duplicate delivery). In event-sourced systems, the event store itself serves as the outbox — the relay reads from the event store directly.
+**How it works:** Instead of publishing directly to a message bus after the domain state change, the application or Unit of Work persists Aggregate state and outgoing messages in the same database transaction, typically using an `outbox` table. A separate relay polls the outbox, publishes unpublished messages, and marks them as sent. The shared database transaction makes state and durable handoff atomic. Relay retries can publish duplicates, so delivery is normally at least once and consumers must be idempotent or deduplicate by message ID. In event-sourced systems, the event store can serve as the durable source for the relay.
 
 **When to use:**
 - Any time you need to publish events or commands to an external system as a result of a domain state change.
@@ -299,57 +299,11 @@ export class InMemoryEventBus implements EventBus {
 
 **Intent:** Separate the path that creates new aggregates (triggering domain events) from the path that restores existing aggregates from storage (no events raised).
 
-**How it works:** The aggregate has two static factory methods: `create()` for the first-time creation path (raises domain events) and `fromPrimitives()` for rehydration from the database (does NOT raise events). The plain `new` constructor is always `private`, forcing all callers through one of the two factories.
+**How it works:** Give creation and restoration different semantic entry points. A named factory such as `create()` may record creation facts; a reconstitution factory or dedicated persistence mapper restores existing state without recording new facts. Restrict raw construction where practical so callers cannot accidentally choose the wrong lifecycle path.
 
-The repository calls `fromPrimitives()` on reads and persists via `toPrimitives()` — a symmetric method returning a plain object. This means the persistence layer never touches value objects directly; it works with plain primitives.
+`fromPrimitives()`/`toPrimitives()` is a useful implementation style, not a requirement. Prefer a dedicated mapper when public serialization methods would expose persistence concerns or weaken encapsulation.
 
-**Example:**
-```typescript
-export class User extends AggregateRoot {
-  private constructor(        // ← private: never called directly
-    public readonly id: UserId,
-    private readonly name: UserName,
-    private readonly email: UserEmail,
-    private readonly profilePicture: UserProfilePicture,
-  ) {
-    super();
-  }
-
-  // Creation path — raises domain event
-  static create(id: string, name: string, email: string, profilePicture: string): User {
-    const user = new User(
-      new UserId(id),
-      new UserName(name),
-      new UserEmail(email),
-      new UserProfilePicture(profilePicture),
-    );
-    user.record(new UserRegisteredDomainEvent(id, name, email, profilePicture));
-    return user;
-  }
-
-  // Rehydration path — no events
-  static fromPrimitives(primitives: UserPrimitives): User {
-    return new User(
-      new UserId(primitives.id),
-      new UserName(primitives.name),
-      new UserEmail(primitives.email),
-      new UserProfilePicture(primitives.profilePicture),
-    );
-  }
-
-  // Serialization to persistence
-  toPrimitives(): UserPrimitives {
-    return {
-      id: this.id.value,
-      name: this.name.value,
-      email: this.email.value,
-      profilePicture: this.profilePicture.value,
-    };
-  }
-}
-```
-
-**Practical heuristic:** If a `new User()` call appears anywhere outside the two static factories, that is a bug — the constructor must be `private`. Events must only be raised in `create()` and other named mutating methods, never in `fromPrimitives()`.
+**Practical heuristic:** Reconstitution must never invoke creation behavior or emit `Created` again. Read `aggregates.md` for lifecycle, historical-data, and mapping trade-offs.
 
 ---
 
@@ -361,4 +315,4 @@ export class User extends AggregateRoot {
 
 **When NOT to:** Do not inject EventBus into the aggregate. Do not publish from a repository save hook — a failed publish after a successful save creates a split-brain state that is hard to detect.
 
-**Practical heuristic:** The sequence is always: save aggregate → pull events → publish. If the save throws, no events are published. Use the Outbox Pattern when you cannot afford to lose events on process crash.
+**Practical heuristic:** Keep event selection in the aggregate and delivery outside it. `save aggregate -> pull events -> publish` is acceptable only for best-effort in-process delivery: it has a crash window and pulling may clear events before publication succeeds. For durable delivery, persist aggregate state and outbox records in one transaction, then relay with retries and idempotent consumers. Read `aggregates.md` for the aggregate-side boundary and `../../infrastructure-design/references/event-bus.md` for implementation.

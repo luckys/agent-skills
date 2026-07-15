@@ -84,7 +84,7 @@ it("publishes UserRegistered event when user signs up", async () => {
 
   await useCase.execute(new RegisterUserCommand("alice@example.com"));
 
-  expect(repo.save).toHaveBeenCalledOnce();
+  expect(repo.save).toHaveBeenCalledTimes(1);
   expect(eventBus.publish).toHaveBeenCalledWith(
     expect.arrayContaining([expect.objectContaining({ type: "UserRegistered" })])
   );

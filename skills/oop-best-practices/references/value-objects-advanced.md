@@ -251,17 +251,34 @@ final readonly class Admin
 ```typescript
 // A collection that enforces its own invariants
 class UserCollection {
-  private constructor(private readonly items: ReadonlyArray<User>) {}
+  private readonly items: ReadonlyArray<User>;
+
+  private constructor(items: ReadonlyArray<User>) {
+    this.items = Object.freeze([...items]);
+  }
 
   static of(items: User[]): UserCollection {
     if (items.length === 0) {
       throw new InvalidArgumentError("UserCollection cannot be empty");
     }
+    const hasDuplicateIdentity = items.some((user, index) =>
+      items.findIndex((candidate) => candidate.id.equals(user.id)) !== index
+    );
+    if (hasDuplicateIdentity) {
+      throw new InvalidArgumentError("UserCollection cannot contain duplicate users");
+    }
     return new UserCollection(items);
   }
 
   add(user: User): UserCollection {
+    if (this.items.some((existing) => existing.id.equals(user.id))) {
+      throw new InvalidArgumentError("UserCollection cannot contain duplicate users");
+    }
     return new UserCollection([...this.items, user]); // immutable — returns new instance
+  }
+
+  includes(userId: UserId): boolean {
+    return this.items.some((user) => user.id.equals(userId));
   }
 
   count(): number {
@@ -270,7 +287,7 @@ class UserCollection {
 }
 ```
 
-**Practical heuristic:** When a raw array has rules of its own (minimum size, uniqueness, ordering), extract a typed collection. The collection becomes a value object that owns those rules.
+**Practical heuristic:** When a raw array has rules of its own (minimum size, uniqueness, ordering), extract a typed collection. The collection becomes a value object that owns those rules. Compare Entities by identity and Value Objects by explicit value equality; JavaScript `includes(new ValueObject(...))` compares object references and will not enforce domain uniqueness.
 
 ---
 

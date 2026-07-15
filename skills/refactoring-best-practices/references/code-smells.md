@@ -190,3 +190,26 @@ What it means:
 - Feature Envy in other classes is often a consequence of Data Class
 
 Move to apply: Move Method to transfer behavior into the class; Introduce Value Object if the class represents an immutable domain concept; remove setters where mutation is not needed to enforce invariants
+
+---
+
+## Temporal Coupling in Version History
+
+Recognition signals:
+- The same files repeatedly change together for one business rule
+- A Value Object, validator/ensurer, exception, and use case move in lockstep
+- Fixing one concept requires remembering several distant representations of the same knowledge
+
+What it means:
+- Co-change can reveal duplicated knowledge or a responsibility split across the wrong boundaries
+- The files may represent one concept that deserves a single owner
+- The module or Aggregate boundary may not match the actual change boundary
+
+How to investigate:
+- Inspect version history or a co-change matrix over representative feature commits
+- Exclude generated files, formatting commits, bulk migrations, and mechanical renames
+- Confirm the signal against domain language, invariants, ownership, and runtime consistency
+
+Move to apply: Move validation into the Value Object that owns intrinsic validity; Move Method behind the Aggregate Root for stateful rules; Extract Class or first-class collection when one concept is scattered. Treat temporal coupling as evidence, never as proof.
+
+Source: [CodelyTV/aggregates-course](https://github.com/CodelyTV/aggregates-course), temporal-coupling lesson and history examples.

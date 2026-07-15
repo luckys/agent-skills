@@ -81,7 +81,7 @@ Use this skill when the main challenge is changing existing code safely.
 
 - Read `references/safe-change-workflow.md` for seam-based refactoring guidance, sensing and separation, and the legacy code change algorithm.
 - Read `references/refactoring-moves.md` for tactical moves and when to use them.
-- Read `references/code-smells.md` when recognizing a problem and choosing the right move.
+- Read `references/code-smells.md` when recognizing a problem, using temporal co-change as design evidence, and choosing the right move.
 - Read `references/legacy-code-techniques.md` for Sprout, Wrap, Extract and Override, and other techniques for working without tests.
 - Read `references/characterization-tests.md` for how to write tests before refactoring untested code.
 - Read `references/fran-iglesias-refactoring-guidance.md` for practical refactoring heuristics distilled from Fran Iglesias.
@@ -91,6 +91,7 @@ Use this skill when the main challenge is changing existing code safely.
 
 - Use `oop-best-practices` for everyday new code decisions.
 - Use `design-patterns-best-practices` when the main issue is choosing an object collaboration pattern.
+- Use `ddd-best-practices` when moving invariants, splitting a God Aggregate, introducing a root, or changing a consistency boundary.
 
 ## Source Influences
 
@@ -100,3 +101,4 @@ This skill is synthesized from ideas emphasized in:
 - `99 Bottles of OOP` by Sandi Metz
 - `Practical Object-Oriented Design in Ruby` by Sandi Metz
 - Fran Iglesias's `Object Calisthenics` series
+- [CodelyTV Aggregates course](https://github.com/CodelyTV/aggregates-course) (temporal coupling and Aggregate evolution)

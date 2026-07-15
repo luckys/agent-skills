@@ -26,31 +26,36 @@ Source: CodelyTV/infrastructure_design-transactions-course
 **How it works:** The use case opens a transaction before doing any work, executes all repository operations within that transaction, and commits (or rolls back on error) at the end. Repositories receive the active transaction context either via constructor injection or a thread-local/async-context store.
 
 **When to use:**
-- Use cases that write to two or more tables/aggregates that must be consistent
-- Any "create X then create Y" pattern where partial completion is unacceptable
+- Use cases that persist one Aggregate through multiple statements or tables
+- Multiple local writes that a documented business invariant requires to commit atomically
 - Domain events that must be saved atomically with the aggregate (see event-bus.md Outbox pattern)
 
 **When NOT to use:**
 - Read-only use cases (no transaction needed)
+- A single atomic database statement that needs no stronger isolation guarantee
 - Use cases that span multiple bounded contexts or remote services (use sagas / process managers instead)
 - Very long-running operations (holding a DB transaction for seconds causes lock contention)
 
-**Practical heuristic:** The use case is the transaction boundary. One use case = one transaction. If you need two transactions, you probably need two use cases.
+**Practical heuristic:** The use case commonly owns the transaction boundary, but the Aggregate owns the consistency boundary. Updating multiple Aggregate Roots in one local transaction is possible, yet it is a design warning: first verify that the rule is truly atomic rather than a workflow that can use events or a process manager. Multiple tables belonging to one Aggregate are not multiple consistency boundaries. See `../../ddd-best-practices/references/aggregates.md`.
 
 **Example:**
 ```typescript
-// PostPublisher.ts — use case owns the transaction boundary
-export class PostPublisher {
+// InlineTransactionalPostPublisher.ts — explicit inline strategy
+export class InlineTransactionalPostPublisher {
   constructor(
     private readonly clock: Clock,
     private readonly repository: PostRepository,
     private readonly eventBus: EventBus,
+    private readonly transactionManager: TransactionManager,
   ) {}
 
   async publish(id: string, userId: string, content: string): Promise<void> {
-    const post = Post.publish(id, userId, content, this.clock);
-    await this.repository.save(post);           // write aggregate
-    await this.eventBus.publish(post.pullDomainEvents()); // write events (same tx if DB-backed bus)
+    await this.transactionManager.run(async () => {
+      const post = Post.publish(id, userId, content, this.clock);
+      await this.repository.save(post);
+      // The DB-backed bus must use this same transaction/connection.
+      await this.eventBus.publish(post.pullDomainEvents());
+    });
   }
 }
 ```
@@ -61,7 +66,7 @@ export class PostPublisher {
 
 **Intent:** Add transaction semantics to a use case without modifying its code, using the Decorator pattern.
 
-**How it works:** A `TransactionalPostPublisher` wraps the real `PostPublisher`. Before delegating to the inner use case, it opens a transaction; after successful execution it commits; on exception it rolls back. The inner use case has no knowledge of transactions.
+**How it works:** As an alternative to the inline strategy above, a `TransactionalPostPublisher` wraps a transaction-unaware `PostPublisher`. Before delegating to the inner use case, it opens a transaction; after successful execution it commits; on exception it rolls back. Never apply this decorator to an already transactional use case.
 
 **When to use:**
 - When you want to apply transactions uniformly to many use cases
@@ -200,10 +205,29 @@ export class MariaDBConnection extends DatabaseConnection {
 ```typescript
 // Use at composition root — the use case itself stays clean
 const postPublisher = TransactionalDecorator.decorate(
-  new PostPublisher(repository, eventBus),
+  new PostPublisher(clock, repository, eventBus),
   mariadbConnection,
 );
 ```
+
+---
+
+## Optimistic Concurrency at the Aggregate Boundary
+
+**Intent:** Reject stale writes instead of silently overwriting a decision made from newer Aggregate state.
+
+**How it works:** Persist a version with the Aggregate. Update with both identity and expected version (`WHERE id = ? AND version = ?`) and increment the version atomically. Treat zero affected rows as a concurrency conflict. The application decides whether to reload and retry a commutative command or return a conflict for user review.
+
+**When to use:**
+- Concurrent commands can target the same Aggregate Root
+- Lost updates could violate a business decision
+- Holding pessimistic locks across user or network time is unacceptable
+
+**When NOT to use:**
+- Blind last-write-wins is explicitly acceptable
+- The operation is an atomic database primitive that does not depend on previously loaded state
+
+**Practical heuristic:** Version the Aggregate, not each table or child independently. Add an integration test with two readers of the same version and prove that only one stale-dependent write succeeds.
 
 ---
 

@@ -69,6 +69,8 @@ Domain-Driven Design guidance for modeling complex domains.
 
 - Bounded Contexts, Subdomains (Core/Supporting/Generic), Ubiquitous Language
 - Aggregates, Entities, Value Objects, Domain Services, Factories
+- Aggregate discovery from invariants, lifecycle, cardinality, contention, and transaction boundaries
+- Cross-Aggregate consistency, optimistic concurrency, creation vs. reconstitution
 - Context Mapping (ACL, Open Host Service, Partnership, Shared Kernel, and more)
 - CQRS, Event Sourcing, Event Storming, Saga, Outbox/Inbox
 - Hexagonal Architecture (Ports & Adapters)
@@ -81,6 +83,7 @@ Infrastructure pattern guidance for DDD and hexagonal architecture applications.
 - Event bus: in-memory, DB-backed, RabbitMQ with dead-letter exchanges
 - Outbox and Inbox patterns for reliable event delivery
 - Transactions: TransactionalDecorator, placement at use case boundary
+- Aggregate optimistic versioning and stale-write conflict handling
 - Cache-aside with Redis, cache key strategies
 - Database views, materialized views, and MySQL trigger patterns
 
@@ -93,6 +96,7 @@ Test-Driven Development guidance for driving implementation from tests.
 - London (outside-in) vs Chicago (inside-out) schools
 - BDD (Given/When/Then) and ATDD
 - James Carr's 15 anti-patterns + Ian Cooper's "TDD, Where Did It All Go Wrong"
+- Invariant-first Aggregate tests, atomic failure assertions, deterministic Mothers, concurrency tests
 - Examples in TypeScript, Java, Python, C#, Ruby, PHP, Go, and Rust
 
 ### fp-best-practices
@@ -168,7 +172,7 @@ Skills are synthesized from:
 - *Working Effectively with Legacy Code* — Michael Feathers
 - *Practical Object-Oriented Design in Ruby* — Sandi Metz
 - *Implementation Patterns* — Kent Beck
-- CodelyTV repositories (TypeScript DDD skeleton, hexagonal architecture examples)
+- CodelyTV repositories (TypeScript DDD skeleton, hexagonal architecture examples, Aggregates course)
 - *Mostly Adequate Guide to Functional Programming* — Brian Lonsdorf (Professor Frisby)
 - *Domain Modeling Made Functional* — Scott Wlaschin
 - *Grokking Simplicity* — Eric Normand

@@ -1,6 +1,6 @@
 ---
 name: infrastructure-design
-description: Infrastructure pattern guidance for DDD and hexagonal architecture applications. Use when implementing an event bus (in-memory, DB-backed, RabbitMQ), applying the Outbox or Inbox pattern, managing database transactions with a TransactionalDecorator, designing cache-aside strategies with Redis, building database views or materialized views, or choosing between synchronous and asynchronous event delivery.
+description: Infrastructure pattern guidance for DDD and hexagonal architecture applications. Use when implementing an event bus (in-memory, DB-backed, RabbitMQ), applying the Outbox or Inbox pattern, managing database transactions or optimistic Aggregate concurrency, designing cache-aside strategies with Redis, building database views or materialized views, or choosing between synchronous and asynchronous event delivery.
 license: MIT
 metadata:
   author: luckys
@@ -28,6 +28,7 @@ Practical infrastructure patterns for layered (hexagonal/DDD) applications. Each
 | Complex JOIN queries repeated across the codebase | Database View / Materialized View | `references/database-views.md` |
 | Read model needs pre-computed aggregates | Materialized view with triggers | `references/database-views.md` |
 | Events must survive application crashes | Outbox pattern | `references/event-bus.md` |
+| Stale Aggregate writes must not overwrite newer decisions | Optimistic version check | `references/transactions.md` |
 
 ## Core Principles
 
@@ -46,6 +47,6 @@ Practical infrastructure patterns for layered (hexagonal/DDD) applications. Each
 ## References
 
 - `references/event-bus.md` — DB-backed event bus, outbox pattern, consumer-per-subscriber, retries and dead-letter
-- `references/transactions.md` — transaction placement (repo vs use case vs entry point), decorator pattern, unit of work
+- `references/transactions.md` — transaction placement, Aggregate consistency boundaries, optimistic concurrency, decorator pattern, unit of work
 - `references/cache.md` — cache-aside, write-through, write-behind, where to cache in DDD layers
 - `references/database-views.md` — views vs materialized views, triggers for MySQL materialized views, CQRS read side

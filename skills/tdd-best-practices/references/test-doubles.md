@@ -103,7 +103,7 @@ const service = new NotificationService(sendEmail);
 
 await service.notifyUser(user);
 
-expect(sendEmail).toHaveBeenCalledOnce();
+expect(sendEmail).toHaveBeenCalledTimes(1);
 expect(sendEmail).toHaveBeenCalledWith(user.email, expect.stringContaining("Welcome"));
 ```
 

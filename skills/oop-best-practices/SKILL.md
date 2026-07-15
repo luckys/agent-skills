@@ -84,6 +84,7 @@ Use it especially when the task benefits from:
 - Replace primitive obsession with value objects when values carry rules.
 - Prefer telling collaborators what to do over asking for their data and deciding elsewhere.
 - Introduce first-class collections when collections have their own invariants.
+- Define explicit equality for Value Objects and use Entity identity for collection membership; do not rely on object-reference equality.
 - Depend on small roles instead of volatile concrete details.
 - Prefer composition when behavior changes independently.
 - Keep public APIs smaller than internal implementation detail.
@@ -126,6 +127,7 @@ Use it especially when the task benefits from:
 
 ## Related Skills
 
+- Use `ddd-best-practices` when object ownership also defines a consistency, lifecycle, repository, or transaction boundary.
 - Use `refactoring-best-practices` for risky or legacy code changes.
 - Use `design-patterns-best-practices` when the main question is pattern selection.
 - Use `rest-api-best-practices` when designing the HTTP API surface that exposes these objects.
@@ -141,3 +143,4 @@ This skill is synthesized from ideas emphasized in:
 - Fran Iglesias's `design-principles` articles
 - Fran Iglesias's `good-practices` articles
 - Fran Iglesias's `Object Calisthenics` series
+- [CodelyTV Aggregates course](https://github.com/CodelyTV/aggregates-course)

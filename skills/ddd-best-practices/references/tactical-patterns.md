@@ -92,12 +92,12 @@ A good Domain Service has three characteristics:
 
 **Intent:** Define a cluster of associated objects treated as a unit for the purposes of data change, with one object designated as the root controlling all access.
 
-**How it works:** Complex object graphs create problems: invariants that span multiple objects are hard to enforce, concurrent access creates contention, and cascading deletes are unclear. An Aggregate draws a boundary around a set of Entities and Value Objects that belong together. One Entity — the Aggregate Root — is the only member accessible to external objects. All external references go through the root; internal members can only be accessed transiently via the root. The root is responsible for enforcing all invariants of the entire cluster. A delete operation removes the entire Aggregate at once. When any object within the boundary changes, all invariants of the Aggregate must be satisfied.
+**How it works:** Complex object graphs create problems: invariants that span multiple objects are hard to enforce, concurrent access creates contention, and lifecycle ownership becomes unclear. An Aggregate draws a boundary around a set of Entities and Value Objects that must change consistently. One Entity — the Aggregate Root — controls all mutation. External code interacts through the root and must not retain mutable access to internals. The root enforces the cluster's invariants after every accepted command. Persistence and deletion follow the aggregate's lifecycle policy; they do not have to mirror an ORM cascade.
 
 Rules:
 - Only Aggregate Roots can be retrieved directly from the database (Repositories operate on Aggregate Roots)
-- Transient references to internal members may be passed out for use within a single operation only
-- Objects within the boundary may hold references to other Aggregate Roots (not internal members of other Aggregates)
+- Internal members may be observed through immutable values or snapshots, but mutable references must not escape
+- Objects within the boundary reference other Aggregate Roots by identity, not by a live mutable object reference
 
 **When to use:**
 - A set of objects has invariants that must hold across all of them (e.g., a Purchase Order's total must not exceed its approved limit)
@@ -111,7 +111,7 @@ Rules:
 
 **Key trade-off:** Tight Aggregate boundaries enforce consistency but create contention under concurrent load. Loose boundaries allow concurrency but risk invariant violations. The Purchase Order example from Evans shows the tension: locking the whole PO enforces the limit invariant but blocks concurrent edits; locking only line items allows invariant violations.
 
-**Related patterns:** Entity (Aggregates are clusters of Entities and Value Objects), Aggregate Root (the controlling Entity), Repository (operates on Aggregate Roots), Factory (creates entire Aggregates in a consistent state)
+**Related patterns:** Entity (Aggregates are clusters of Entities and Value Objects), Aggregate Root (the controlling Entity), Repository (operates on Aggregate Roots), Factory (creates entire Aggregates in a consistent state). Read `aggregates.md` for the complete boundary-discovery, transaction, concurrency, and lifecycle guidance.
 
 **Practical heuristic:** Ask: "What must be true of this cluster at all times?" That scope defines the Aggregate. If the invariant only needs to hold eventually (not at every moment), the boundary may be too tight.
 
@@ -462,12 +462,12 @@ A Factory may be: a standalone Factory object/class, a Factory Method on a relat
 
 **Intent:** Model something that happened in the domain that domain experts care about, making state changes explicit, named, and usable as triggers for downstream reactions.
 
-**How it works:** A Domain Event is an immutable record of something that occurred in the domain — named in the past tense using Ubiquitous Language terms (e.g., `OrderPlaced`, `PaymentConfirmed`, `CargoBooked`). It captures the data that describes what happened (who, what, when, context). Because events represent facts that have already occurred, they are Value Objects: immutable, equality by attributes, no identity tracking needed. Other parts of the system — within the same Bounded Context or across Contexts — can react to events without tight coupling to the source Aggregate.
+**How it works:** A Domain Event is an immutable record of something that occurred in the domain — named in the past tense using Ubiquitous Language terms (e.g., `OrderPlaced`, `PaymentConfirmed`, `CargoBooked`). It captures the data that describes what happened (who, what, when, context). Its business payload has value semantics, while its envelope may carry an event ID, occurrence time, and delivery metadata for deduplication and tracing. Other parts of the same Bounded Context can react without tight coupling to the source Aggregate. At a context boundary, translate relevant facts into stable Integration Events rather than exposing the internal Domain Event schema.
 
 Note: Evans' 2003 book treated events implicitly (Handling Events in the cargo example); Domain Events were later formalized as a first-class pattern by the DDD community (Evans, Fowler, and others, circa 2005–2010). The pattern is now considered a core tactical building block.
 
 **When to use:**
-- A state change in one Aggregate should trigger reactions in other Aggregates or Bounded Contexts
+- A state change in one Aggregate should trigger reactions in other Aggregates; cross-context reactions receive a translated Integration Event
 - You want to decouple the source of a change from its downstream effects
 - Auditing, logging, or eventual consistency between Aggregates is required
 - A business expert talks about "when X happens, then Y should occur"

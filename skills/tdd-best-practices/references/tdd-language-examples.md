@@ -99,7 +99,7 @@ describe("RegisterUserUseCase", () => {
   it("should save the user and publish UserRegistered event", async () => {
     await useCase.execute({ email: "alice@example.com", name: "Alice" });
 
-    expect(repo.save).toHaveBeenCalledOnce();
+    expect(repo.save).toHaveBeenCalledTimes(1);
     expect(bus.publish).toHaveBeenCalledWith(
       expect.arrayContaining([
         expect.objectContaining({ type: "UserRegistered" }),

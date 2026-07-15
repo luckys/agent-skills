@@ -582,7 +582,7 @@ class InMemoryPostRepository implements PostRepository
 
 Key distinctions:
 - Repositories are **not DAOs**: they model a collection, not a database gateway. Avoid table-centric CRUD methods.
-- **`nextIdentity()`** belongs on the Repository — the preferred place to generate UUIDs for new Aggregates.
+- Generate opaque Aggregate IDs before persistence, either at the application boundary or through a domain-facing generator such as `repository.nextIdentity()`. Supplying the ID with the create command improves retry idempotency. Keep business sequences separate and allocate them with concurrency-safe infrastructure.
 - Use **Collection-Oriented** style (no explicit `save()` call needed when the ORM tracks changes) or **Persistence-Oriented** style (explicit `persist()`/`save()`) depending on ORM capabilities.
 
 ---
