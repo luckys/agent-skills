@@ -92,6 +92,7 @@ Treat difficulty writing a test first as a design or boundary signal; legacy con
 - Read `references/tdd-schools.md` for the London (outside-in/mockist) vs Chicago (inside-out/classicist) schools, BDD, and ATDD.
 - Read `references/tdd-anti-patterns.md` for James Carr's 15 anti-patterns, Ian Cooper's "TDD, Where Did It All Go Wrong" insights, and recovery strategies.
 - Read `references/tdd-language-examples.md` for Red-Green-Refactor walkthroughs in TypeScript, Java, Python, C#, Ruby, and PHP with their respective test frameworks.
+- Read `references/projection-testing.md` for duplicate, ordering, concurrency, checkpoint, schema migration, replay/rebuild, and eventual-consistency tests for read models.
 - Read `references/value-object-testing.md` for semantic equality, invariant boundaries, deep immutability, normalization, optionality, serialization, and property-based Value Object tests.
 - Read `references/aggregate-testing.md` for invariant-first Aggregate tests, repository contract and adapter tests, including atomic failures, deterministic Mothers, collection equality, transaction propagation, and concurrency integration tests.
 - Read `references/domain-event-testing.md` for Aggregate event assertions, application handoff, subscriber and real-bus tests, Outbox/Inbox delivery tests, Integration Event contracts, and CDC mapping tests.

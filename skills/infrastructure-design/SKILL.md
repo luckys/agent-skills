@@ -26,7 +26,7 @@ Practical infrastructure patterns for layered (hexagonal/DDD) applications. The 
 | Ensuring multiple writes succeed or fail together | Transactions in use case | `references/transactions.md` |
 | Repeated measured reads with acceptable staleness | Cache-Aside at the narrowest reusable layer | `references/cache.md` |
 | Complex JOIN queries repeated across the codebase | Database View / Materialized View | `references/database-views.md` |
-| Read model needs pre-computed aggregates | Materialized view with triggers | `references/database-views.md` |
+| Read model needs pre-computed aggregates | Materialized view, trigger, or event-driven projection | `references/database-views.md` |
 | Events must survive application crashes | Outbox pattern | `references/event-bus.md` |
 | Consumers must tolerate duplicate delivery | Idempotent handler / Inbox | `references/event-bus.md` |
 | Legacy writer cannot emit messages | Change Data Capture translator | `references/event-bus.md` |
@@ -53,4 +53,4 @@ Practical infrastructure patterns for layered (hexagonal/DDD) applications. The 
 - `references/event-bus.md` — synchronous failure policy, transactional Outbox, relay claiming, fan-out, Inbox/idempotency, ordering, retries, dead-letter/replay, brokers, and CDC
 - `references/transactions.md` — transaction placement, Aggregate consistency boundaries, optimistic concurrency, decorator pattern, unit of work
 - `references/cache.md` — cache placement, keys, invalidation, failures, stampede, capacity, Redis operations, and observability
-- `references/database-views.md` — views vs materialized views, triggers for MySQL materialized views, CQRS read side
+- `references/database-views.md` — views vs materialized views, trigger-maintained tables, event-driven projections, and workload-based selection

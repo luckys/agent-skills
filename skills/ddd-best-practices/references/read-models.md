@@ -8,7 +8,7 @@ How to build the read side of CQRS: when to use read models instead of aggregate
 
 **Intent:** Use aggregates for writes that enforce invariants; use flat read models for queries that serve the UI.
 
-**How it works:** Aggregates are optimized for consistency and business rule enforcement. Their structure (value objects, nested entities, private fields) is opaque to the outside world and expensive to reassemble from multiple sources for display. A read model is a plain data structure — a flat DTO or a typed object with only public primitives — shaped around what a specific view or query needs. It is built by querying a repository directly, bypassing the domain model entirely. On the write side the aggregate is the source of truth; on the read side the read model is the source of truth.
+**How it works:** Aggregates are optimized for consistency and business rule enforcement. Distinguish three read mechanisms: an aggregate-derived response DTO, a database view/materialized view, and an independently stored projection. Only the last has its own synchronization lifecycle. The write model or event history remains authoritative business state; a projection is a disposable, rebuildable query-serving copy.
 
 **Example:**
 ```typescript
@@ -29,7 +29,7 @@ export class ProductReviewsByUserSearcher {
 }
 ```
 
-**Practical heuristic:** If a use case only reads data and returns a response, call `.toPrimitives()` on the aggregate and return that flat object. Never expose aggregate internals (value objects, methods) to the delivery layer.
+**Practical heuristic:** If one Aggregate already contains everything the query needs, map it to a response DTO and do not call that mapping CQRS. Never expose Aggregate internals to the delivery layer. Introduce an independent projection only when its query shape, performance, ownership, or consistency lifecycle differs from the write model.
 
 ---
 
@@ -128,21 +128,20 @@ export class RetentionUser {
   }
 }
 
-// Projection use case — upserts the read model
+// Projection use case — repository performs an atomic insert/upsert
 export class RetentionUserCreator {
   constructor(private readonly repository: RetentionUserRepository) {}
 
   async create(id: string, email: string, name: string): Promise<void> {
-    if (await this.repository.search(new UserId(id))) {
-      return; // idempotent: already created
-    }
     const user = RetentionUser.create(id, email, name);
-    await this.repository.save(user);
+    await this.repository.insertIfAbsent(user);
   }
 }
 ```
 
-**Practical heuristic:** Projection handlers must be idempotent. Events can be delivered more than once; the handler must produce the same final state regardless of how many times it processes the same event.
+Back creation with a unique source identity and an atomic insert/upsert. `search()` followed by `save()` races when two consumers observe absence concurrently. For non-idempotent updates, store `(projection_name, event_id)` in an Inbox in the same transaction as the projection mutation.
+
+**Practical heuristic:** Projection handlers must tolerate duplicate delivery. Prove this with database constraints, atomic operations, or a transactional Inbox; a preliminary existence query is not a correctness mechanism.
 
 ---
 
@@ -181,9 +180,33 @@ export class UpdateRetentionUserEmailOnUserEmailUpdated
 
 **Intent:** Choose between updating the projection in the same transaction as the write or in a background process driven by an event bus.
 
-**How it works:** Synchronous projection: the use case saves the aggregate and immediately updates the projection in the same request (or the same transaction). The read side is always consistent with the write side. The tradeoff is increased latency on the write path. Asynchronous projection: the use case saves the aggregate and publishes events to a bus. A background subscriber updates the projection when the event is consumed. The write path is fast but the read side lags behind (eventual consistency). Use synchronous projections when the UI must immediately reflect the write; use asynchronous projections when the read side can tolerate a delay or when the projection is in a different bounded context entirely.
+**How it works:** A synchronous projection is atomic only when source state and projection update share one real database transaction. Two sequential writes in the same request still have a dual-write failure window. An asynchronous projection uses a transactional Outbox, durable subscriber delivery, and an idempotent projection transaction; it trades immediate visibility for independent scaling and recovery.
 
-**Practical heuristic:** Start with synchronous projections. Switch to asynchronous only when write latency becomes a measurable problem or when the projection lives in a separate bounded context that must decouple its lifecycle from the write side.
+**Practical heuristic:** Choose from the required consistency boundary and ownership, not latency alone. Keep a projection synchronous only when it belongs in the same transaction and database. Use durable asynchronous delivery across bounded contexts or independently operated stores, and define freshness/read-your-writes behavior explicitly.
+
+---
+
+## Obtaining Data Missing from an Event
+
+Do not automatically enlarge every event or query another context during projection. Choose deliberately:
+
+| Option | Prefer when | Main cost |
+|---|---|---|
+| Enrich the Integration Event | The added fact naturally belongs in the stable public contract | Contract coupling, payload growth, privacy and versioning burden |
+| Query the source while handling | Same availability boundary, current state is intentionally required, replay drift is acceptable | Temporal coupling; historical replay may use today's state |
+| Maintain a local supporting projection | The consumer needs autonomous, replayable facts such as post-to-owner mapping | Another projection, prerequisite ordering, bootstrap and rebuild work |
+
+Prefer the smallest consumer-owned supporting projection for cross-context historical calculations. Translate producer events at an Anti-Corruption Layer rather than importing producer Domain Event classes as the consumer's domain model.
+
+---
+
+## Incremental Updates and Rebuilds
+
+Counters, averages, bounded latest-item lists, and other incremental projections need explicit duplicate, ordering, correction, and concurrency semantics. Store source measures such as integer counts and derive ratios where possible; reconstructing totals from a floating-point average accumulates drift. Use atomic database mutations or optimistic version checks instead of concurrent load-mutate-save operations.
+
+Every independent projection needs a rebuild contract: stable name and schema version, source cursor, checkpoint, reset/resume behavior, duplicate protection, validation criteria, cutover, and rollback. Prefer rebuilding into a shadow `vNext` store, replaying to a high-water mark, tailing live events, reconciling results, then atomically switching the read alias. Never scan mutable source state and consume live events concurrently without a defined handoff point.
+
+A mixed read/write model is an exception, not a default. Embed denormalized display data in an Aggregate only when it is bounded, belongs to the same consistency boundary, and accepted staleness and write contention are explicit. Otherwise keep presentation fields in a dedicated projection.
 
 ---
 

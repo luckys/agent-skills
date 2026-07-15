@@ -41,7 +41,7 @@ SELECT * FROM posts_with_likes WHERE user_id = ?;
 
 ---
 
-## Materialized View (PostgreSQL / Oracle / SQL Server)
+## Refreshable Materialized View (PostgreSQL / Oracle)
 
 **Intent:** Pre-compute and physically store the result of a complex query, enabling fast reads at the cost of stale data between refreshes.
 
@@ -51,14 +51,14 @@ SELECT * FROM posts_with_likes WHERE user_id = ?;
 - Expensive aggregate queries (COUNT, SUM, AVG over millions of rows) that are read frequently
 - Reporting and analytics dashboards where slight staleness is acceptable
 - PostgreSQL, Oracle, or SQL Server environments (native materialized view support)
-- CQRS read models that must respond at sub-millisecond latency
+- Query paths that need predictable low latency over expensive precomputed results
 
 **When NOT to use:**
 - MySQL (does not support materialized views natively — use the trigger pattern instead, see below)
 - When data must always be current (use a live view or a projection table with event-driven updates)
 - When refresh frequency would approach write frequency (you pay the refresh cost without benefiting from staleness tolerance)
 
-**Practical heuristic:** If the query runs in under 10ms, a standard view is fine. If it takes 100ms+, consider a materialized view. If it takes seconds, a projection table updated by domain events is the right answer.
+**Practical heuristic:** Measure with production-shaped data and query plans. Choose a materialized view when refresh cost and tolerated staleness fit the workload; choose an event-driven projection when incremental updates, independent ownership, or replay semantics justify its operational cost.
 
 **Example:**
 ```sql
@@ -96,7 +96,7 @@ REFRESH MATERIALIZED VIEW posts_with_likes;
 - When triggers would fire on every row of a bulk import (performance impact during large data loads)
 - When the projection logic requires application-level business rules (triggers bypass the domain model)
 
-**Practical heuristic:** Triggers are invisible to the application and easy to forget. Document them explicitly in your schema migrations. If the trigger logic exceeds 10 lines, extract it to an event-driven projection handler instead.
+**Practical heuristic:** Triggers are invisible to the application and easy to forget. Document them in schema migrations and test write amplification, bulk loads, corrections, and rollback. Move to an event-driven projection when ownership, deployment, cross-context data, or operational recovery no longer fits a database trigger; line count is not the decision criterion.
 
 **Example:**
 ```sql
@@ -147,7 +147,7 @@ END;
 - Simple CRUD applications where the read and write shape are identical
 - When projection lag (eventual consistency) would confuse users in a strongly consistent flow
 
-**Practical heuristic:** Start with a standard view. When view performance is insufficient, upgrade to a materialized view or trigger-maintained projection. Only move to event-driven projections when the projection logic requires application code.
+**Practical heuristic:** Start with the simplest mechanism that satisfies measured query cost, freshness, ownership, and rebuild requirements. A standard view is not automatically the safest starting point for an expensive or cross-context query.
 
 ---
 
@@ -209,7 +209,7 @@ SELECT * FROM dbo.posts_with_likes WHERE user_id = '...';
 - Simple `COUNT` / `SUM` projections that triggers handle cleanly
 - When you need synchronous consistency (event-driven projections are eventually consistent)
 
-**Practical heuristic:** Start with a DB trigger. Move to an event-driven projection handler when (a) the trigger exceeds 10 lines, (b) the projection needs data from another bounded context, or (c) the projection must call application-layer services.
+**Practical heuristic:** Prefer a DB trigger for small same-database derivations with acceptable write amplification. Prefer an event-driven projection when it needs independent ownership, another bounded context, durable replay, or separate scaling. Do not call remote services from a projector without defining retry, idempotency, and replay drift.
 
 **Example — TypeScript event handler updating a projection:**
 ```typescript
