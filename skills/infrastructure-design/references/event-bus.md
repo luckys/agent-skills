@@ -1,284 +1,162 @@
-# Event Bus
+# Event Delivery Infrastructure
 
-Source: CodelyTV/infrastructure_design-eventbus-db-course
+Sources: CodelyTV event-bus courses and [domain_modeling-domain_events-course](https://github.com/CodelyTV/domain_modeling-domain_events-course), corrected for transaction, retry, and consumer semantics.
 
-## In-Memory Event Bus
+This reference owns transport and reliability. The domain owns which facts occurred; the application translates public contracts; infrastructure delivers them.
 
-**Intent:** Dispatch domain events synchronously within the same process.
+## Message Contract Assumptions
 
-**How it works:** On `publish()`, the bus iterates registered subscribers and calls each handler directly. Events are delivered immediately but are lost if the process crashes before all handlers complete. No persistence, no retry.
+Local in-process dispatch may carry internal Domain Events. Cross-process or cross-context transport should carry explicitly translated, versioned Integration Events.
 
-**When to use:**
-- Development and testing environments
-- Simple CRUD applications where event loss is acceptable
-- Events that represent notifications with no side effects
+A durable envelope needs a stable message ID, type, schema version, aggregate/source identity, occurrence time, correlation/causation metadata where relevant, and immutable payload. Preserve the same ID across every retry and relay attempt.
 
-**When NOT to use:**
-- Production systems where event delivery must survive crashes
-- Events that trigger writes in other bounded contexts
-- Any case where a subscriber can fail without retrying
+## Synchronous In-Process Bus
 
-**Practical heuristic:** If losing an event would cause data inconsistency or a missed business action, do not use an in-memory bus.
+Use an in-memory bus for simple same-process reactions when process-crash loss is acceptable or the caller's transaction explicitly includes all effects.
 
-**Example:**
 ```typescript
+type EventHandler = (event: DomainEvent) => Promise<void>;
+
 export class InMemoryEventBus implements EventBus {
-  constructor(private readonly subscribers: DomainEventSubscriber<DomainEvent>[]) {}
+  private readonly subscriptions = new Map<string, EventHandler[]>();
 
-  async publish(events: DomainEvent[]): Promise<void> {
-    await Promise.all(
-      events.flatMap((event) =>
-        this.subscribersFor(event).map((sub) => sub.on(event))
-      )
-    );
-  }
-}
-```
-
----
-
-## DB-Backed Event Bus (Outbox Pattern)
-
-**Intent:** Persist domain events to the same database as the aggregate, guaranteeing that events are never lost even if the application crashes after writing but before dispatching.
-
-**How it works:** On `publish()`, the bus writes events to a `domain_events_to_consume` table inside the same database transaction that saved the aggregate. A background worker (consumer) polls the table, delivers events to subscribers, and marks them as consumed. Event delivery is decoupled from the write path.
-
-**When to use:**
-- Production systems where event loss causes inconsistency
-- Cross-context event propagation (e.g., mooc context publishing, retention context consuming)
-- Any scenario where the aggregate write and the event dispatch must be atomic
-
-**When NOT to use:**
-- Simple read-only events or analytics (overhead is not worth it)
-- When you already have a reliable external message broker (RabbitMQ, Kafka) and prefer not to add a DB table
-
-**Practical heuristic:** If your aggregate saves and your event bus publishes in the same transaction, you cannot lose the event. Implement this pattern whenever domain events drive downstream writes.
-
-**Example:**
-```typescript
-// PostgresEventBus.ts — saves events in the same DB transaction
-@Service()
-export class PostgresEventBus implements EventBus {
-  constructor(private readonly connection: PostgresConnection) {}
-
-  async publish(events: DomainEvent[]): Promise<void> {
-    if (events.length === 0) return;
-
-    await this.connection.sql.begin(async (tx) => {
-      await Promise.all(events.map((event) => this.insertEvent(event, tx)));
-    });
+  constructor(subscribers: readonly DomainEventSubscriber<DomainEvent>[]) {
+    for (const subscriber of subscribers) {
+      for (const eventType of subscriber.subscribedTo()) {
+        const handlers = this.subscriptions.get(eventType.eventName) ?? [];
+        handlers.push(subscriber.on.bind(subscriber));
+        this.subscriptions.set(eventType.eventName, handlers);
+      }
+    }
   }
 
-  private async insertEvent(event: DomainEvent, tx: TransactionSql) {
-    return tx`
-      INSERT INTO public.domain_events_to_consume (id, name, attributes, occurred_at)
-      VALUES (
-        ${event.eventId},
-        ${event.eventName},
-        ${tx.json(event.toPrimitives())},
-        ${event.occurredAt}
-      )
-    `;
-  }
-}
-```
-
----
-
-## Consumer per Subscriber
-
-**Intent:** Give each subscriber its own queue/cursor so that a slow or failing subscriber does not block others.
-
-**How it works:** When the event bus publishes to the DB table, a separate row (or cursor) is created per subscriber. Each consumer independently reads and processes its own rows. Failure in subscriber A does not prevent subscriber B from advancing.
-
-**When to use:**
-- Multiple independent bounded contexts consuming the same events
-- Subscribers with different processing speeds or reliability requirements
-- When partial failure isolation is required
-
-**When NOT to use:**
-- Only one subscriber exists (unnecessary overhead)
-- Subscribers must all succeed or all fail (use a saga instead)
-
-**Practical heuristic:** One consumer per subscriber table entry. When you add a new subscriber, create a new consumer — never share one.
-
----
-
-## Retries and Dead Letter
-
-**Intent:** Automatically retry failed event deliveries and move permanently failing events to a dead-letter store for manual inspection.
-
-**How it works:** The consumer tracks `retry_count` on each event row. On failure it increments the count and schedules a re-attempt with backoff. After a maximum retry threshold (e.g., 3–5), the event is moved to a `domain_events_dead_letter` table and no longer retried automatically.
-
-**When to use:**
-- Any production event bus — retries are not optional
-- Transient infrastructure failures (network timeout, DB lock, third-party API unavailable)
-
-**When NOT to use:**
-- Do not retry on domain validation errors (the event will never succeed — fix the code, not the retry count)
-
-**Practical heuristic:** Log every dead-letter event with its full payload. Set up an alert on dead-letter table growth — it signals a code bug or a broken external dependency.
-
----
-
-## Retries and Dead Letter — Concrete Table Schema
-
-**Schema for the outbox table with retry tracking:**
-```sql
--- Events pending delivery
-CREATE TABLE domain_events_to_consume (
-  id           UUID        PRIMARY KEY,
-  name         VARCHAR(255) NOT NULL,
-  attributes   JSONB        NOT NULL,
-  occurred_at  TIMESTAMPTZ  NOT NULL,
-  retry_count  INT          NOT NULL DEFAULT 0
-);
-
--- Events that exceeded max retries — for manual inspection
-CREATE TABLE domain_events_dead_letter (
-  id           UUID        PRIMARY KEY,
-  name         VARCHAR(255) NOT NULL,
-  attributes   JSONB        NOT NULL,
-  occurred_at  TIMESTAMPTZ  NOT NULL,
-  failed_at    TIMESTAMPTZ  NOT NULL DEFAULT NOW(),
-  last_error   TEXT
-);
-```
-
-**Consumer loop with retry and dead letter (TypeScript):**
-```typescript
-// PostgresDomainEventsConsumer.ts
-const MAX_RETRIES = 5;
-
-export class PostgresDomainEventsConsumer {
-  constructor(
-    private readonly connection: PostgresConnection,
-    private readonly subscribers: Map<string, DomainEventSubscriber<DomainEvent>>,
-  ) {}
-
-  async consume(): Promise<void> {
-    const events = await this.connection.sql<DomainEventRow[]>`
-      SELECT id, name, attributes, retry_count
-      FROM domain_events_to_consume
-      ORDER BY occurred_at ASC
-      LIMIT 100
-    `;
-
-    await Promise.all(events.map((row) => this.processEvent(row)));
-  }
-
-  private async processEvent(row: DomainEventRow): Promise<void> {
-    const subscriber = this.subscribers.get(row.name);
-    if (!subscriber) return;
-
-    try {
-      await subscriber.on(this.toDomainEvent(row));
-      // success: remove from queue
-      await this.connection.sql`
-        DELETE FROM domain_events_to_consume WHERE id = ${row.id}
-      `;
-    } catch (error) {
-      if (row.retry_count >= MAX_RETRIES) {
-        // move to dead letter
-        await this.connection.sql`
-          INSERT INTO domain_events_dead_letter (id, name, attributes, occurred_at, last_error)
-          VALUES (${row.id}, ${row.name}, ${row.attributes}, ${row.occurred_at}, ${String(error)})
-        `;
-        await this.connection.sql`
-          DELETE FROM domain_events_to_consume WHERE id = ${row.id}
-        `;
-      } else {
-        // increment retry count — exponential backoff handled by consumer scheduling
-        await this.connection.sql`
-          UPDATE domain_events_to_consume
-          SET retry_count = retry_count + 1
-          WHERE id = ${row.id}
-        `;
+  async publish(events: readonly DomainEvent[]): Promise<void> {
+    for (const event of events) {
+      // Sequential dispatch avoids sibling work outliving a rejected publication.
+      for (const handler of this.subscriptions.get(event.eventName) ?? []) {
+        await handler(event);
       }
     }
   }
 }
 ```
 
-**Practical heuristic:** Run the consumer on a short polling interval (1–5 seconds) during normal operation. Alert when `domain_events_dead_letter` table has rows — any row there is a guaranteed bug or broken external dependency.
+Choose and document one failure policy:
 
----
+- **Fail-fast/propagate:** publication rejects if a synchronous handler fails.
+- **Collect-all:** run all handlers, then reject with all failures.
+- **Best-effort:** log and continue only for explicitly non-critical reactions.
 
-## RabbitMQ Integration (Production Event Bus)
+Never catch and log by default while returning success. Test routing, awaiting, no-subscriber behavior, multiple subscribers, and the selected failure policy.
 
-**Intent:** Replace the DB-backed polling consumer with a message broker for lower latency, fan-out across multiple services, and operations tooling (queues, DLQ, admin UI).
+## Transactional Outbox
 
-**How it works:** The DB outbox remains as the write-side guarantee (same transaction as the aggregate save). A separate "relay" process reads from the outbox and publishes to RabbitMQ exchanges. Consumers subscribe to queues bound to the exchange. RabbitMQ handles delivery, retry, and dead-lettering natively via queue arguments.
+The Outbox guarantee exists only when Aggregate state and messages use the same database transaction and transaction-scoped connection.
 
-**When to use:**
-- Multiple services or bounded contexts consuming the same events
-- High event volume where polling latency is unacceptable
-- When you need fan-out (one event → N queues) without writing N database rows
-
-**When NOT to use:**
-- Single-service architectures — the DB outbox alone is sufficient
-- When you cannot afford the operational overhead of a RabbitMQ cluster
-
-**RabbitMQ queue setup with DLQ (TypeScript / amqplib):**
 ```typescript
-// Declare exchange + queue + dead-letter queue
-await channel.assertExchange("domain_events", "topic", { durable: true });
-
-// Dead-letter exchange and queue
-await channel.assertExchange("domain_events.dead_letter", "topic", { durable: true });
-await channel.assertQueue("retention.on_user_registered.dead_letter", { durable: true });
-await channel.bindQueue(
-  "retention.on_user_registered.dead_letter",
-  "domain_events.dead_letter",
-  "user.registered",
-);
-
-// Main consumer queue configured to DLQ on rejection
-await channel.assertQueue("retention.on_user_registered", {
-  durable: true,
-  arguments: {
-    "x-dead-letter-exchange": "domain_events.dead_letter",
-    "x-message-ttl": 60_000,         // optional: per-message TTL
-    "x-dead-letter-routing-key": "user.registered",
-  },
+const pending = user.pendingDomainEvents(); // non-destructive snapshot with stable IDs
+await transactionManager.run(async (tx) => {
+  await userRepository.with(tx).save(user);
+  await outbox.with(tx).append(toIntegrationMessages(pending));
 });
-
-await channel.bindQueue(
-  "retention.on_user_registered",
-  "domain_events",
-  "user.registered",
-);
+user.clearDomainEvents(pending); // only after commit succeeds
 ```
 
-**Consumer with explicit ack/nack:**
-```typescript
-channel.consume("retention.on_user_registered", async (msg) => {
-  if (!msg) return;
-  try {
-    const event = JSON.parse(msg.content.toString());
-    await subscriber.on(event);
-    channel.ack(msg);                       // success: remove from queue
-  } catch (error) {
-    const retries = (msg.properties.headers?.["x-death"]?.[0]?.count ?? 0) as number;
-    if (retries >= MAX_RETRIES) {
-      channel.ack(msg);                     // give up — already in DLQ via x-death routing
-    } else {
-      channel.nack(msg, false, false);      // reject without requeue → routes to DLQ exchange
-    }
-  }
-});
+An Event Bus that opens a separate transaction around only its inserts does not solve the dual-write problem. An external broker cannot participate atomically in a normal database transaction; retain the Outbox even when the relay publishes to RabbitMQ or Kafka.
+
+Do not irreversibly lose pulled events before durable handoff. The Unit of Work must append them before commit and retain/recover them on rollback, or inspect without draining until the transaction succeeds.
+
+## Relay Claiming and Completion
+
+Relays are at-least-once. Claim rows with database-supported locking/leases (`FOR UPDATE SKIP LOCKED`, claim token plus expiry, etc.), publish outside long locks where appropriate, and mark completion conditionally.
+
+A crash after broker publish but before marking completion causes redelivery. Preserve message identity and require consumer idempotency. Do not generate a new ID from the payload on each attempt.
+
+## Fan-Out and Delivery State
+
+Independent subscribers need independent delivery state. Use one broker queue per subscriber, a per-subscriber Inbox/cursor, or an Outbox delivery table keyed by `(message_id, subscriber_id)`.
+
+One queue row deleted by the first handler cannot represent fan-out. A `Map<eventName, subscriber>` also loses additional subscribers; use a collection per event type.
+
+Unknown event types must have an explicit policy: quarantine/dead-letter, retain for later deployment, or intentionally ignore with metrics. Never leave them stuck silently.
+
+## Inbox and Idempotency
+
+At-least-once transport means duplicates are normal. Prefer naturally idempotent effects; otherwise record the message ID in an Inbox in the same transaction as the business effect:
+
+```sql
+BEGIN;
+WITH accepted AS (
+  INSERT INTO inbox(message_id, consumer) VALUES ($1, $2)
+  ON CONFLICT DO NOTHING
+  RETURNING 1
+)
+UPDATE projection SET ...
+WHERE EXISTS (SELECT 1 FROM accepted);
+COMMIT;
 ```
 
-**Practical heuristic:** One queue per subscriber (not per event type). Name queues as `<context>.<subscriber>` (e.g., `retention.on_user_registered`). Bind multiple routing keys to the same queue if one subscriber handles multiple event types.
+Back this with `UNIQUE (message_id, consumer)`. An Inbox committed before a local effect can lose work; committed after it can duplicate work. Both can be atomic only when the effect uses the same transactional database. For email, payment, or another remote system, use a provider idempotency key or persist a durable intent/outbox and reconcile uncertain outcomes.
 
----
+## Ordering and Versioning
 
-## Sync vs Async Publishing Decision
+Brokers may provide ordering only within documented scopes such as a partition or queue. Define the partition key and required order explicitly.
 
-| Factor | Synchronous (In-Memory) | Asynchronous (DB-Backed) |
-|---|---|---|
-| Delivery guarantee | None (process crash = lost) | At-least-once |
-| Latency | Immediate | Near-real-time (polling interval) |
-| Complexity | Low | Medium |
-| Failure isolation | None | Full (per subscriber) |
-| Suitable for prod | No (non-critical only) | Yes |
+Use aggregate version/source sequence or stream position for causal ordering. Wall-clock `occurredAt` is not reliable across machines. Consumers can reject stale versions, buffer gaps, rebuild a projection, or use commutative operations according to business semantics.
+
+Do not solve ordering by dumping the entire Aggregate into every message without a consumer and compatibility reason.
+
+## Retries and Dead Letters
+
+Classify failures:
+
+- retry transient timeouts, unavailable dependencies, and lock conflicts with bounded exponential backoff plus jitter;
+- do not endlessly retry invalid schemas, unknown versions, or permanent domain rejection;
+- quarantine/dead-letter permanent failures with payload, stable ID, error, attempt count, and timestamps;
+- alert on age, retry volume, and dead-letter growth;
+- provide controlled replay that keeps identity and audit history.
+
+Dead-letter insert and source completion should be atomic where possible. A broker DLQ route is not itself a multi-attempt retry topology; configure delayed retry queues/policies explicitly.
+
+## Broker Relay
+
+Use a broker for lower latency, service fan-out, partitioning, and operational tooling when its complexity is justified. The relay publishes versioned Integration Events from the Outbox. Consumers acknowledge only after their effect and Inbox commit.
+
+One durable queue per subscriber is a useful default. Bind multiple event types to it when one subscriber intentionally handles them.
+
+## Change Data Capture
+
+CDC is appropriate when a legacy writer cannot record an Outbox. Capture stable mutation IDs and old/new row data, then map an allow-listed `(table, operation)` to a versioned Integration Event.
+
+CDC limitations:
+
+- database mutation is not necessarily domain intent;
+- schema changes can break contracts;
+- the same application write may already publish an event, causing duplicates;
+- retries must reuse the captured mutation ID;
+- concurrent consumers need claiming/locking;
+- unsupported or poison mutations need quarantine, not deletion.
+
+Prefer an application Outbox once the writer can change.
+
+## Decision Table
+
+| Need | Approach |
+|---|---|
+| Non-critical local reaction | In-process bus with explicit failure policy |
+| Durable state-to-message handoff | Transactional Outbox on the same connection |
+| Cross-service fan-out | Outbox relay plus broker queues |
+| Duplicate-safe consumer | Idempotent operation or transactional Inbox |
+| Ordered Aggregate stream | Partition by Aggregate and carry source version |
+| Legacy writer cannot change | CDC translated to Integration Events |
+
+## Review Checklist
+
+- Do state and Outbox append share one real transaction context?
+- Is message identity stable across retries?
+- Does each subscriber have independent delivery state?
+- Are consumer effect and Inbox atomic?
+- Is ordering scope defined with a source sequence/version?
+- Are retryable and permanent failures classified?
+- Are dead-letter replay and observability operationally defined?
+- Does CDC translate row changes rather than pretending they are Domain Events?

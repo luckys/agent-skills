@@ -73,6 +73,7 @@ Domain-Driven Design guidance for modeling complex domains.
 - Aggregate discovery from invariants, lifecycle, cardinality, contention, and transaction boundaries
 - Cross-Aggregate consistency, optimistic concurrency, creation vs. reconstitution
 - Repository contracts, Repository vs DAO/query service/gateway, mapping, absence, and adapter testing
+- Domain Event semantics, granularity, payloads, lifecycle recording, and Integration Event translation
 - Context Mapping (ACL, Open Host Service, Partnership, Shared Kernel, and more)
 - CQRS, Event Sourcing, Event Storming, Saga, Outbox/Inbox
 - Hexagonal Architecture (Ports & Adapters)
@@ -84,6 +85,7 @@ Infrastructure pattern guidance for DDD and hexagonal architecture applications.
 
 - Event bus: in-memory, DB-backed, RabbitMQ with dead-letter exchanges
 - Outbox and Inbox patterns for reliable event delivery
+- Ordering/versioning, retries, dead-letter replay, idempotency, and Change Data Capture
 - Transactions: TransactionalDecorator, placement at use case boundary
 - Aggregate optimistic versioning and stale-write conflict handling
 - Cache-aside with Redis, cache key strategies
@@ -100,6 +102,7 @@ Test-Driven Development guidance for driving implementation from tests.
 - James Carr's 15 anti-patterns + Ian Cooper's "TDD, Where Did It All Go Wrong"
 - Invariant-first Aggregate tests, atomic failure assertions, deterministic Mothers, concurrency tests
 - Value Object contract tests: equality laws, defensive copies, normalization, and round trips
+- Domain Event, subscriber, Event Bus, Outbox/Inbox, and CDC contract tests
 - Examples in TypeScript, Java, Python, C#, Ruby, PHP, Go, and Rust
 
 ### fp-best-practices

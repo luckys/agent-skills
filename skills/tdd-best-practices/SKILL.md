@@ -1,6 +1,6 @@
 ---
 name: tdd-best-practices
-description: Test-Driven Development guidance. Use when writing tests before implementation, applying Red-Green-Refactor, testing Value Object contracts, DDD Aggregates, repository contracts or persistence adapters, choosing between test doubles (mock vs stub vs fake), deciding test granularity (unit vs integration vs acceptance), practicing outside-in or inside-out TDD, reviewing test suite quality, or diagnosing why a test suite is slow, brittle, or hard to maintain.
+description: Test-Driven Development guidance. Use when writing tests before implementation, applying Red-Green-Refactor, testing Value Object contracts, DDD Aggregates, Domain Events/subscribers, repository contracts or persistence adapters, choosing between test doubles (mock vs stub vs fake), deciding test granularity (unit vs integration vs acceptance), practicing outside-in or inside-out TDD, reviewing test suite quality, or diagnosing why a test suite is slow, brittle, or hard to maintain.
 license: MIT
 metadata:
   author: luckys
@@ -61,6 +61,9 @@ Mock when the collaborator has I/O, non-determinism, or a slow/external dependen
 ### When testing an Aggregate
 Use real Value Objects and child Entities. Test commands through the root, including the rule that a rejected command leaves both state and pending events unchanged.
 
+### When testing Domain Events
+Assert exact facts after Act: type/name, aggregate identity, business payload, count, and controlled metadata. Test subscriber handling separately from real-bus registration and prove durable duplicate/retry behavior with integration tests.
+
 ### When testing a Value Object
 Test the applicable public contract: semantic equality with distinct instances, exact invariant boundaries, and any exposed normalization, hashing, defensive-copy, operation, or serialization behavior. Inject clocks or policies instead of reading ambient context.
 
@@ -91,6 +94,7 @@ The design is too coupled. A class that is hard to test is a design problem, not
 - Read `references/tdd-language-examples.md` for Red-Green-Refactor walkthroughs in TypeScript, Java, Python, C#, Ruby, and PHP with their respective test frameworks.
 - Read `references/value-object-testing.md` for semantic equality, invariant boundaries, deep immutability, normalization, optionality, serialization, and property-based Value Object tests.
 - Read `references/aggregate-testing.md` for invariant-first Aggregate tests, repository contract and adapter tests, including atomic failures, deterministic Mothers, collection equality, transaction propagation, and concurrency integration tests.
+- Read `references/domain-event-testing.md` for Aggregate event assertions, application handoff, subscriber and real-bus tests, Outbox/Inbox delivery tests, Integration Event contracts, and CDC mapping tests.
 
 ## Related Skills
 
@@ -113,3 +117,4 @@ This skill is synthesized from:
 - [CodelyTV Aggregates course](https://github.com/CodelyTV/aggregates-course) (including testing counterexamples)
 - [CodelyTV Value Objects course](https://github.com/CodelyTV/value_objects-course) (including testing and TypeScript counterexamples)
 - [CodelyTV Repository Pattern course](https://github.com/CodelyTV/repository_pattern-course) (including repository-double and integration-test counterexamples)
+- [CodelyTV Domain Events course](https://github.com/CodelyTV/domain_modeling-domain_events-course) (including self-asserting-double and Event Bus coverage counterexamples)

@@ -153,9 +153,11 @@ Patterns for separating reads from writes, communicating through events, and mod
 
 ## Raising Domain Events from Aggregates
 
+For the canonical design rules on semantics, granularity, payloads, Aggregate recording, creation/reconstitution, and Integration Event translation, read `domain-events.md`. This section shows only the relationship to CQRS and event-driven coordination.
+
 **Intent:** Let the aggregate itself record domain events so the use case never needs to know which events to create.
 
-**How it works:** The `AggregateRoot` base class maintains a private `domainEvents` list. Aggregates call `this.record(event)` inside named constructors or mutating methods — never inside the regular constructor. After persisting the aggregate, the use case calls `aggregate.pullDomainEvents()` to drain the list and hands the events to the `EventBus`. The pull clears the list atomically, making repeated calls safe.
+**How it works:** The `AggregateRoot` base class maintains a private `domainEvents` list. Aggregates call `this.record(event)` inside named constructors or mutating methods — never inside the regular constructor. The application coordinates persistence and event handoff. The simple drain-and-publish example below is only for explicitly best-effort in-process reactions; durable delivery requires non-destructive inspection plus a transactional Outbox.
 
 **Example:**
 ```typescript
@@ -188,11 +190,11 @@ export class User extends AggregateRoot {
   }
 }
 
-// Use case publishes after saving
+// Best-effort in-process example only; not a durable handoff.
 export class UserRegistrar {
   constructor(
     private readonly repository: UserRepository,
-    private readonly eventBus: EventBus,
+    private readonly eventBus: DomainEventBus,
   ) {}
 
   async registrar(id: string, name: string, email: string, profilePicture: string): Promise<void> {
@@ -203,7 +205,7 @@ export class UserRegistrar {
 }
 ```
 
-**Practical heuristic:** Record events inside named constructors and mutating methods — never in the plain constructor. The use case only persists and publishes; it never constructs events manually.
+**Practical heuristic:** Record events inside named constructors and mutating methods — never in the plain constructor. For durable behavior, append translated messages to an Outbox in the same transaction as state and clear pending events only after commit.
 
 ---
 
@@ -211,18 +213,23 @@ export class UserRegistrar {
 
 **Intent:** Decouple the domain from event transport infrastructure and define a standard contract for reacting to domain events.
 
-**How it works:** The `EventBus` interface lives in the domain layer alongside `DomainEvent`. Infrastructure provides concrete implementations (`InMemoryEventBus`, RabbitMQ adapter, etc.). The use case receives the bus via constructor injection, so tests can swap in a mock without touching real infrastructure.
+**How it works:** An internal `DomainEventBus` port dispatches internal facts within the application. A separate `IntegrationMessageOutbox`/publisher port accepts translated, versioned public contracts for cross-process delivery. Infrastructure implements each adapter without exporting internal event classes.
 
 The `DomainEventSubscriber<T>` interface defines how handlers declare which events they care about. Each subscriber implements `subscribedTo()` — returning the event class constructors it handles — and `on(event)` — the handler called on dispatch. The `InMemoryEventBus` builds a `Map<eventName, handlers[]>` at startup by iterating all registered subscribers.
 
 **Example — complete wiring:**
 ```typescript
 // Domain port
-export interface EventBus {
+export interface DomainEventBus {
   publish(events: DomainEvent[]): Promise<void>;
 }
 
 // Domain port — subscriber contract
+export type DomainEventName<T extends DomainEvent> = {
+  readonly eventName: string;
+  readonly prototype: T;
+};
+
 export interface DomainEventSubscriber<T extends DomainEvent> {
   on(domainEvent: T): Promise<void>;
   subscribedTo(): DomainEventName<T>[];  // array of event class constructors
@@ -230,6 +237,9 @@ export interface DomainEventSubscriber<T extends DomainEvent> {
 
 // Concrete event
 export class UserRegisteredDomainEvent extends DomainEvent {
+  static readonly eventName = "shop.user-registered";
+  readonly eventName = UserRegisteredDomainEvent.eventName;
+
   constructor(
     public readonly id: string,
     public readonly name: string,
@@ -241,28 +251,18 @@ export class UserRegisteredDomainEvent extends DomainEvent {
 }
 
 // Infrastructure — InMemoryEventBus registers subscribers at construction time
-export class InMemoryEventBus implements EventBus {
-  private readonly subscriptions: Map<string, Function[]> = new Map();
+export class InMemoryEventBus implements DomainEventBus {
+  private readonly subscriptions = new Map<string, Array<(event: DomainEvent) => Promise<void>>>();
 
   constructor(subscribers: DomainEventSubscriber<DomainEvent>[]) {
     this.registerSubscribers(subscribers);
   }
 
   async publish(events: DomainEvent[]): Promise<void> {
-    const executions: unknown[] = [];
-
-    events.forEach((event) => {
-      const subscribers = this.subscriptions.get(event.eventName);
-      if (subscribers) {
-        subscribers.forEach((subscriber) => {
-          executions.push(subscriber(event));
-        });
-      }
-    });
-
-    await Promise.all(executions).catch((error) => {
-      console.error("Executing subscriptions:", error);
-    });
+    for (const event of events) {
+      const handlers = this.subscriptions.get(event.eventName) ?? [];
+      for (const handler of handlers) await handler(event);
+    }
   }
 
   private registerSubscribers(subscribers: DomainEventSubscriber<DomainEvent>[]): void {
@@ -275,7 +275,7 @@ export class InMemoryEventBus implements EventBus {
 
   private subscribe(eventName: string, subscriber: DomainEventSubscriber<DomainEvent>): void {
     const current = this.subscriptions.get(eventName);
-    const handler = subscriber.on.bind(subscriber);
+    const handler = subscriber.on.bind(subscriber) as (event: DomainEvent) => Promise<void>;
     if (current) {
       current.push(handler);
     } else {
@@ -285,13 +285,13 @@ export class InMemoryEventBus implements EventBus {
 }
 ```
 
-**Key design decisions in `InMemoryEventBus`:**
+**Illustrative design decisions in `InMemoryEventBus`:**
 - Subscribers are registered at construction time — no runtime `addSubscriber()` calls.
 - The `Map` key is `event.eventName` (a string constant on the event class), not the class reference — this survives serialization boundaries.
-- `Promise.all` dispatches all handlers concurrently per `publish()` call. Errors in one handler do not block others but are logged.
-- The same `publish()` signature works for both in-memory and broker-backed implementations — the use case never changes.
+- Events and handlers are dispatched sequentially so no sibling handler outlives a rejected publication. A collect-all or concurrent policy must await every handler before reporting failures and must not share a transaction that can roll back while work continues.
+- Internal dispatch and broker publication use different contracts so infrastructure never decides how to translate domain facts into public messages.
 
-**Practical heuristic:** Keep `EventBus`, `DomainEvent`, and `DomainEventSubscriber` in `shared/domain/event/` — they are the only shared kernel between bounded contexts inside the same process.
+**Practical heuristic:** Keep the required contracts in the application/domain core and the dispatcher in infrastructure. Do not share producer-owned concrete event classes between Bounded Contexts; translate them to stable Integration Events at the boundary.
 
 ---
 
@@ -309,10 +309,10 @@ export class InMemoryEventBus implements EventBus {
 
 ## Where to Publish Domain Events: Use Case vs. Aggregate
 
-**Intent:** Decide which layer is responsible for handing events to the EventBus.
+**Intent:** Decide which layer is responsible for handing internal events to local dispatch or translated messages to durable delivery.
 
-**How it works:** The aggregate records events internally (`this.record(event)`). The use case is the only actor with access to the EventBus — it saves the aggregate and then calls `eventBus.publish(aggregate.pullDomainEvents())`. Publishing from inside the aggregate requires injecting the EventBus into the domain, which crosses the dependency rule and makes testing harder. Publishing from the use case keeps domain and infrastructure concerns cleanly separated.
+**How it works:** The Aggregate records events internally (`this.record(event)`). The application owns handoff: it may dispatch best-effort local reactions after save, or translate pending facts and append them to an Outbox in the same transaction as state. Publishing from inside the Aggregate requires a transport dependency and breaks the dependency rule.
 
 **When NOT to:** Do not inject EventBus into the aggregate. Do not publish from a repository save hook — a failed publish after a successful save creates a split-brain state that is hard to detect.
 
-**Practical heuristic:** Keep event selection in the aggregate and delivery outside it. `save aggregate -> pull events -> publish` is acceptable only for best-effort in-process delivery: it has a crash window and pulling may clear events before publication succeeds. For durable delivery, persist aggregate state and outbox records in one transaction, then relay with retries and idempotent consumers. Read `aggregates.md` for the aggregate-side boundary and use `infrastructure-design` for implementation.
+**Practical heuristic:** Keep event selection in the Aggregate and delivery outside it. `save aggregate -> pull events -> publish` is acceptable only for best-effort in-process delivery: it has a crash window and pulling may clear events before publication succeeds. For durable delivery, inspect pending events non-destructively, persist state and translated Outbox messages in one transaction, clear only after commit, then relay with retries and idempotent consumers.

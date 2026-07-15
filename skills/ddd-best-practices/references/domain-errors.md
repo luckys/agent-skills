@@ -389,31 +389,25 @@ Source: CodelyTV `ddd_problems-domain_events_errors_handling-course`. These are 
 
 **Intent:** Handle domain events that arrive out of order at the consumer without corrupting state.
 
-**How it works:** Message brokers do not guarantee ordered delivery. A `CourseRenamed` event may arrive before the `CourseCreated` event that it depends on, causing the consumer to try to rename a course that does not yet exist. Two strategies:
+**How it works:** Brokers provide ordering only within documented scopes such as a partition or queue. A `CourseRenamed` event may arrive before the `CourseCreated` event when routing, retries, or parallel consumers differ. Carry an Aggregate version/source sequence, partition related messages by Aggregate when order matters, and update projections with an atomic compare-and-set.
 
-1. **Last-event-has-preference:** Ignore ordering entirely; always apply the latest state. Works when the event carries the full new state (not a delta) and idempotency is already enforced. If `CourseRenamed` carries the full course name, applying it regardless of order produces a correct final state.
+1. **Source-version guard:** Store the last applied source version and accept only the expected/newer version according to projection policy. Buffer gaps or rebuild when every transition matters.
 
-2. **Prefer-by-recent-date:** Compare the event's `occurredOn` timestamp against the consumer's last-applied timestamp. Discard the event if it is older than the already-applied state. Requires storing a `lastUpdatedAt` field on the consumer's projection.
+2. **Commutative/current-state projection:** Apply messages in any order only when the operation is mathematically commutative or the message carries an authoritative source version and complete consumer-required state. Do not use wall-clock time as causal order across machines.
 
 **Example:**
 ```typescript
 // Consumer stores last-applied event date and discards stale ones
 async handleCourseRenamed(event: CourseRenamedDomainEvent): Promise<void> {
-  const projection = await this.repo.search(new CourseId(event.aggregateId));
-
-  if (projection && projection.updatedAt > event.occurredOn) {
-    return; // stale event — already processed a newer rename
-  }
-
-  await this.repo.save(new CourseNameProjection({
+  await this.repo.upsertIfNewer({
     id: event.aggregateId,
     name: event.newName,
-    updatedAt: event.occurredOn,
-  }));
+    sourceVersion: event.aggregateVersion,
+  }); // one conditional statement: WHERE source_version < incoming version
 }
 ```
 
-**Practical heuristic:** If your events carry full state (not deltas), last-event-has-preference is simpler and sufficient. Use prefer-by-recent-date only when events carry deltas or when the order of operations is semantically meaningful.
+**Practical heuristic:** Define ordering scope and source sequence explicitly. Event time may drive behavior only when the domain itself defines event-time precedence.
 
 ---
 
@@ -446,7 +440,7 @@ async handleUserRegistered(event: UserRegisteredDomainEvent): Promise<void> {
 }
 ```
 
-**Practical heuristic:** Design every event consumer to be idempotent by default. Use the Inbox table for non-idempotent operations (email sends, payment charges, counter increments).
+**Practical heuristic:** Design every event consumer to be idempotent by default. Use a transactional Inbox for local database effects such as counters. For email or payment, use the provider's idempotency key or persist a durable intent and reconcile uncertain outcomes; an Inbox cannot make a remote call atomic with your database.
 
 ---
 
@@ -482,31 +476,23 @@ This is the core production pattern for reliable domain event publishing in DDD 
 ```typescript
 // Aggregate save + outbox write in ONE transaction
 async save(aggregate: AggregateRoot): Promise<void> {
+  const pending = aggregate.pendingDomainEvents();
+  const messages = toIntegrationMessages(pending);
   await this.db.transaction(async (tx) => {
     await tx.execute`INSERT INTO aggregates ...`;
 
-    for (const event of aggregate.pullDomainEvents()) {
+    for (const message of messages) {
       await tx.execute`
         INSERT INTO outbox (id, event_name, payload, published_at)
-        VALUES (${event.eventId}, ${event.eventName}, ${JSON.stringify(event)}, null)
+        VALUES (${message.id}, ${message.type}, ${JSON.stringify(message)}, null)
       `;
     }
   });
-}
-
-// Relay — separate process, runs on a schedule
-async relay(): Promise<void> {
-  const pending = await this.db.query`
-    SELECT * FROM outbox WHERE published_at IS NULL ORDER BY created_at
-  `;
-  for (const row of pending) {
-    await this.eventBus.publish(row.event_name, row.payload);
-    await this.db.execute`
-      UPDATE outbox SET published_at = now() WHERE id = ${row.id}
-    `;
-  }
+  aggregate.clearDomainEvents(pending);
 }
 ```
+
+The relay must claim rows with locking or leases, preserve each message ID across retries, and complete claims conditionally. Multiple workers must not select the same unclaimed batch concurrently; use the dedicated infrastructure event-delivery guidance for the relay implementation.
 
 **Practical heuristic:** If your aggregate `save()` method calls `eventBus.publish()` directly without the Outbox Pattern, you have a reliability gap. Any deployment restart or crash silently drops unpublished events.
 
@@ -516,7 +502,7 @@ async relay(): Promise<void> {
 
 | Problem | Symptom | Solution |
 |---|---|---|
-| Unordered events | Consumer processes rename before create | Last-event-preference or prefer-by-recent-date |
+| Unordered events | Consumer processes rename before create | Partition by source identity + source version/CAS; buffer gaps when transitions are required |
 | Duplicated events | Counter over-counted, emails sent twice | Idempotent logic or Inbox deduplication table |
 | Queued / stuck events | One bad message blocks the whole queue | Dead-letter queue + retry with backoff |
 | Lost events on crash | Events disappear after deploy/restart | Outbox Pattern + relay process |

@@ -45,20 +45,26 @@ export class InlineTransactionalPostPublisher {
   constructor(
     private readonly clock: Clock,
     private readonly repository: PostRepository,
-    private readonly eventBus: EventBus,
+    private readonly outbox: IntegrationMessageOutbox,
     private readonly transactionManager: TransactionManager,
   ) {}
 
   async publish(id: string, userId: string, content: string): Promise<void> {
+    const post = Post.publish(id, userId, content, this.clock);
+    let handedOff: readonly DomainEvent[] = [];
     await this.transactionManager.run(async () => {
-      const post = Post.publish(id, userId, content, this.clock);
+      handedOff = post.pendingDomainEvents(); // non-destructive, stable event IDs
+      const messages = toIntegrationMessages(handedOff);
       await this.repository.save(post);
-      // The DB-backed bus must use this same transaction/connection.
-      await this.eventBus.publish(post.pullDomainEvents());
+      // The Outbox adapter must use this same transaction/connection.
+      await this.outbox.append(messages);
     });
+    post.clearDomainEvents(handedOff); // clear only after commit
   }
 }
 ```
+
+The Unit of Work must not permanently discard pulled events when the transaction rolls back. Append them durably before commit and retain/recover pending events on failure, or inspect pending events without draining until the handoff succeeds. See `event-bus.md` for the full Outbox contract.
 
 ---
 

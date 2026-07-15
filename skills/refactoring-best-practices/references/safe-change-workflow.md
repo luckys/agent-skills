@@ -75,6 +75,8 @@ In code that has no tests, the first task is locating where a test can attach. L
 
 When direct tests on the target code are impossible, find the nearest observable point upstream or downstream and write tests there first. A test at an indirect point still catches regressions and gives you enough coverage to begin dependency-breaking work safely. As dependencies are removed, move the tests closer to the code under change.
 
+For event migration, keep the legacy command as the entry point and database/message/email effects as output points. A recording message port can expose the new fact as a sensing seam before delivery timing changes. Move one secondary effect at a time and keep primary persistence unchanged; read `domain-event-migration.md` for the complete sequence.
+
 ## 9. The Legacy Code Change Algorithm
 
 Feathers' algorithm from *Working Effectively with Legacy Code* structures every change in untested code as a five-step sequence:

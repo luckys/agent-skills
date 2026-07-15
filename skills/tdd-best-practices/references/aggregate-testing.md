@@ -170,11 +170,14 @@ Do not accept a single-threaded test of `MAX(number) + 1` as evidence of safe al
 - Random fixture values without a reproducible seed.
 - Event publication infrastructure in a pure aggregate test.
 
+Use `domain-event-testing.md` for subscriber registration, Event Bus contracts, durable delivery, and CDC tests.
+
 ## Course Caveats
 
 Use the course for modeling examples, not as proof of testing discipline:
 
 - Several aggregate lessons contain only placeholder tests.
 - Some mocks assert inside fake methods and can pass when the expected call never occurs.
+- The Domain Events course repeats self-asserting doubles and does not directly test its concrete Event Bus or external-event filtering.
 - The commit history does not consistently show tests preceding implementation.
 - Event metadata matchers are useful, but assertions still need to prove the System Under Test published the event.
