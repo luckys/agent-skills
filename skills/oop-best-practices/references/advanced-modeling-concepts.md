@@ -81,7 +81,7 @@ Signs that a primitive or raw data field should become its own type:
 - the concept has its own rules, constraints, or derived computations
 - callers cannot trust the value without context because the type alone gives no guarantees
 
-Practical triggers (from Refactor Cotidiano — Fran Iglesias):
+Practical triggers (from Everyday Refactoring — Fran Iglesias):
 
 - you are repeating `isValidEmail(string $email)` checks everywhere: introduce an `Email` type that validates on construction
 - a `firstName` and `lastName` always appear together: introduce a `PersonName` type
@@ -97,7 +97,7 @@ A concept does not yet deserve its own object when:
 
 A class that started as one concept and silently became two is one of the most costly modeling mistakes.
 
-Warning pattern (from Refactor Cotidiano):
+Warning pattern (from Everyday Refactoring):
 
 - a `Book` class gains an `issue` field to also represent magazines
 - later it gains `dvd`, `ebook`, and `cd` fields
@@ -115,7 +115,7 @@ When this happens, split: each distinct real-world concept becomes its own class
 
 ## Where Knowledge Belongs: Information Expert and Creator
 
-Two GRASP patterns (Craig Larman, cited in Refactor Cotidiano) answer the question "who should do this?":
+Two GRASP patterns (Craig Larman, cited in Everyday Refactoring) answer the question "who should do this?":
 
 **Information Expert**: assign responsibility to the object that already has the information needed to fulfill it. An object should not expose its internals so that an external service can operate on them; the operation belongs inside.
 
@@ -127,7 +127,7 @@ These two patterns together reduce the pattern of services that reach into entit
 
 Querying an object's state, making a decision outside it, and then setting a result back is a symptom of knowledge in the wrong place.
 
-The Tell, Don't Ask principle (from Refactor Cotidiano — Fran Iglesias):
+The Tell, Don't Ask principle (from Everyday Refactoring — Fran Iglesias):
 
 - each object is responsible for its own state
 - callers should tell objects what to do, not ask what they contain and compute the answer externally
@@ -137,7 +137,7 @@ A practical test: if a service method reads several fields from an entity to com
 
 ## Delaying Abstractions until Structure Is Stable
 
-Generalizing too early is harder to undo than it looks (from Codigo Sostenible — Carlos Blé):
+Generalizing too early is harder to undo than it looks (from Sustainable Code — Carlos Blé):
 
 - ten lines of duplicated code are easy to turn into a loop; the reverse is harder
 - a generalized component hides the domain concept it was derived from
@@ -153,7 +153,7 @@ Avoid introducing abstractions to handle future scenarios that have not been req
 
 ## Intentionality as a Modeling Signal
 
-Code without explicit intentionality forces readers to reconstruct the author's reasoning (from Codigo Sostenible — Carlos Blé).
+Code without explicit intentionality forces readers to reconstruct the author's reasoning (from Sustainable Code — Carlos Blé).
 
 A model has explicit intentionality when:
 

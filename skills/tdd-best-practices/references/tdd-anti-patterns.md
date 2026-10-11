@@ -269,7 +269,7 @@ Add a test when you're specifying a new behavior, not when you're adding code. T
 
 ### Implication for refactoring
 
-If refactoring breaks tests, the tests are testing implementation. Tests should be stable through refactoring — that's the point of the safety net.
+If a refactor breaks tests, first check for a behavior regression or incorrect setup. Only then decide whether an assertion encodes obsolete implementation detail. Stable behavior tests are the safety net, not a reason to dismiss failures.
 
 ---
 
@@ -285,7 +285,7 @@ If refactoring breaks tests, the tests are testing implementation. Tests should 
 
 1. Identify tests that assert on internal methods or structure.
 2. Replace with tests on the public API.
-3. Delete tests for internal helpers — test the observable behavior instead.
+3. Remove obsolete helper tests only after meaningful behavior is covered at the surviving interface; retain focused invariant or adapter tests that still provide distinct evidence.
 
 ### When setup is excessive
 

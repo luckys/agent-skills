@@ -77,7 +77,7 @@ Before keeping a new abstraction, ask:
 
 ## Name After Meaning, Not Current Implementation
 
-Naming a method after what it does right now ties the name to the implementation (from Refactor Cotidiano — Fran Iglesias, drawing on 99 Bottles of OOP):
+Naming a method after what it does right now ties the name to the implementation (from Everyday Refactoring — Fran Iglesias, drawing on 99 Bottles of OOP):
 
 - a method named `beer` that returns `"beer"` cannot change its internal behavior without breaking the name
 - a method named `beverage` describes what the concept represents, not the specific string it returns today
@@ -87,7 +87,7 @@ Rule: name after what the concept means to the domain, not after the value or me
 
 ## Technical Names Are a Design Smell
 
-Embedding type information or pattern names in identifiers obscures the domain (from Codigo Sostenible — Carlos Blé):
+Embedding type information or pattern names in identifiers obscures the domain (from Sustainable Code — Carlos Blé):
 
 Patterns that reduce abstraction quality:
 
@@ -105,7 +105,7 @@ When you cannot name an interface and its single implementation without resortin
 
 ## Magic Values Are Unnamed Concepts
 
-A literal value embedded directly in code is a concept that has not been given a name (from Refactor Cotidiano — Fran Iglesias):
+A literal value embedded directly in code is a concept that has not been given a name (from Everyday Refactoring — Fran Iglesias):
 
 - `.21` in `$amount * .21` is a business rule (VAT rate) hidden as a number
 - giving it a name (`VAT_RATE`) makes the business rule explicit, prevents duplication, and survives a rate change
@@ -120,7 +120,7 @@ Each unnamed value is an opportunity to add a name that a domain expert would re
 
 ## A Name That Is Hard to Find Diagnoses the Abstraction
 
-The difficulty of naming is data, not just friction (from Codigo Sostenible — Carlos Blé):
+The difficulty of naming is data, not just friction (from Sustainable Code — Carlos Blé):
 
 When you cannot find two different names for an interface and its implementation, and you fall back to `IFoo` / `FooImpl`, the naming difficulty is a signal that the separation may not be worth having.
 
@@ -134,7 +134,7 @@ A name that resists being chosen is telling you:
 
 ## Alien Metaphors and Mutant Names
 
-Two patterns that make a codebase progressively harder to read (from Codigo Sostenible — Carlos Blé):
+Two patterns that make a codebase progressively harder to read (from Sustainable Code — Carlos Blé):
 
 **Alien metaphors**: technical or architectural abstractions that do not match the vocabulary of the business. A "rules engine" that validates loan applications is understandable to engineers; the business speaks of "credit assessment." Code that uses only the technical term creates a translation gap every time a domain expert and a developer communicate.
 
@@ -146,7 +146,7 @@ Prevention: when renaming a concept, rename it everywhere; when introducing a te
 
 ## Evolving Names as Understanding Grows
 
-Names are not permanent. They crystallize the current understanding of the domain (from Refactor Cotidiano — Fran Iglesias):
+Names are not permanent. They crystallize the current understanding of the domain (from Everyday Refactoring — Fran Iglesias):
 
 - code always lags behind domain knowledge because the domain changes
 - a name that was correct when written may be misleading after the domain evolves

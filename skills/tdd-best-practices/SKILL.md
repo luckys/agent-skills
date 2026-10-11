@@ -1,10 +1,10 @@
 ---
 name: tdd-best-practices
-description: Test-Driven Development guidance. Use when writing tests before implementation, applying Red-Green-Refactor, testing Value Object contracts, typed domain failures/Results, DDD Aggregates, Domain Events/subscribers, transaction or cache boundaries, data migrations/backfills, Criteria/query adapters, repository contracts or persistence adapters, choosing between test doubles, deciding test granularity, reviewing test suite quality, or diagnosing brittle tests.
+description: Use when developing test-first with Red-Green-Refactor, reproducing a bug, testing Value Objects, Aggregates, Domain Events, typed Results, transaction/cache boundaries, data migrations or Criteria/query adapters, selecting test boundaries or doubles, or reviewing test quality. Prefer observable behavior and independent expected values; use refactoring guidance for legacy characterization. Documentation-only edits need no TDD cycle.
 license: MIT
 metadata:
   author: luckys
-  version: "1.0.0"
+  version: "1.1.0"
 ---
 
 # TDD Best Practices
@@ -37,8 +37,8 @@ The discipline is in the order. Never refactor on Red. On Green, add only the be
 
 ## Design Workflow
 
-1. **Describe the behavior** — what should the system do? Write the test name first.
-2. **Write a failing test** — make it fail for the right reason (assertion, not setup error).
+1. **Discover the test command and describe the behavior** — use the repository's tooling and name the next observable outcome.
+2. **Write a failing test** — expose the intended assertion or missing new capability, rather than an unrelated setup error. A regression test must reproduce the existing defect.
 3. **Make it pass** — take the simplest path; you can clean up after.
 4. **Refactor** — remove duplication, improve names, reduce complexity.
 5. **Repeat** — the next test should be the smallest step forward.
@@ -86,6 +86,8 @@ Treat difficulty writing a test first as a design or boundary signal; legacy con
 - Tests that break when internal details change, not when behavior changes.
 
 ## References
+
+- Read `references/behavioral-feedback.md` when selecting a test boundary, checking an independent oracle, or proving a regression.
 
 - Read `references/tdd-core-practices.md` for Red-Green-Refactor detail, FIRST properties, the test pyramid, triangulation, and baby steps.
 - Read `references/test-doubles.md` for the Meszaros taxonomy (Dummy, Fake, Stub, Spy, Mock), when to use each, and the classicist vs mockist distinction.

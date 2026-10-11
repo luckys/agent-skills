@@ -17,7 +17,9 @@ Actionable takeaways:
 - Prefer simple object boundaries over speculative extension points.
 - Introduce role-based collaborators when variation is stable enough to deserve a name.
 
-## `Codigo Sostenible` by Carlos Blé
+## `Sustainable Code` by Carlos Blé
+
+The title is rendered in English from the Spanish-language original.
 
 Main ideas to preserve in daily work:
 

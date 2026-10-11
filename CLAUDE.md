@@ -52,6 +52,7 @@ description: When to invoke this skill — specific task types and contexts.
 
 ## Writing Guidelines
 
+- Write repository prose, headings, comments, and example messages in English. Render source quotations and chapter titles in English; preserve source URLs, technical identifiers, proper names, and license notices.
 - `description` in frontmatter is the model's decision signal — write it as "Use when…" covering concrete task types.
 - `SKILL.md` holds workflow steps and day-to-day rules. Keep it scannable.
 - `references/` files are loaded only when the skill directs the model there — keep them detailed and focused.

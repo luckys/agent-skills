@@ -1,10 +1,10 @@
 ---
 name: rest-api-best-practices
-description: REST API design guidance. Use when designing or reviewing REST endpoints, choosing HTTP methods and status codes, defining URL structure and naming conventions, formatting error responses, implementing pagination or filtering, versioning an API, securing endpoints with authentication or rate limiting, or reviewing whether an API exposes domain capabilities rather than raw CRUD operations.
+description: Use when designing or reviewing REST resources, methods, status codes, errors, pagination, filtering, versioning, authorization, idempotency, or public compatibility. Expose domain capabilities while preserving existing HTTP contracts; use the domain and infrastructure skills for implementation rules.
 license: MIT
 metadata:
   author: luckys
-  version: "1.0.0"
+  version: "1.1.0"
 ---
 
 # REST API Best Practices
@@ -24,7 +24,7 @@ Use this skill when the main question is how to design, review, or improve a RES
 1. **Define the resources.**
    - What are the concepts the consumer needs to interact with?
    - Name them with nouns, in plural form.
-   - Avoid verbs in URLs — the HTTP method is the verb.
+   - Use resource nouns; model a non-CRUD domain action as a task subresource when the contract calls for it.
 
 2. **Choose the right HTTP method.**
    - GET for retrieval (safe, idempotent, cacheable)
@@ -69,13 +69,17 @@ One consistent error envelope for all failures. Machine-readable `code` field, h
 ### Pagination
 Default to cursor-based for large or real-time datasets. Offset-based is fine for small, bounded collections. Always include a `Link` header with navigation links.
 
+### Retry safety
+
+A key belongs to one logical intent and remains stable across retries. Define atomic claim, payload binding, replay authorization, in-flight behavior, and retention before calling a write retry-safe.
+
 ### CRUD vs. Task-Based Design
 Avoid exposing raw CRUD when the domain has real business operations. Prefer `POST /orders/{id}/cancel` over `PATCH /orders/{id}` with `{ "status": "cancelled" }`.
 
 ## Day-to-Day Rules
 
 - Use plural nouns for collection endpoints.
-- Never put verbs in URL paths — the HTTP method is the verb.
+- Avoid transport-operation names such as `/getUsers`; an intentional task subresource such as `/orders/{id}/cancel` is valid.
 - Return 201 Created (not 200) after a successful POST that creates a resource.
 - Include a `Location` header pointing to the new resource after 201.
 - Return 204 No Content when there is nothing meaningful to return in the body.
@@ -109,6 +113,8 @@ Avoid exposing raw CRUD when the domain has real business operations. Prefer `PO
 - No documentation or documentation that doesn't match reality.
 
 ## References
+
+- Read `references/retry-contracts.md` when defining idempotency, unknown outcomes, or compatibility of published behavior.
 
 - Read `references/url-design.md` for URL structure, naming conventions, nesting rules, versioning, and task-based URLs.
 - Read `references/http-semantics.md` for HTTP method semantics, idempotency, safety, status code selection, and key headers.

@@ -1,10 +1,10 @@
 ---
 name: fp-best-practices
-description: Functional Programming guidance for writing and reviewing clean, composable code. Use when naming functions or types, designing pure functions, applying function composition or pipe, choosing between algebraic data types (Maybe, Option, Either, Result), controlling side effects or IO boundaries, using higher-order functions (map, filter, reduce, flatMap), applying currying or partial application, avoiding mutation and shared state, or reviewing FP code in JavaScript, TypeScript, Python, Go, Rust, Haskell, Elm, Clojure, F#, or Elixir.
+description: Use when designing pure functions, functional composition, immutable data, Option/Result types, exhaustive variants, or effect boundaries. Review clarity and actual failure cases before adding functional abstractions; preserve the language and error conventions of the project.
 license: MIT
 metadata:
   author: luckys
-  version: "1.0.0"
+  version: "1.1.0"
 ---
 
 # FP Best Practices
@@ -34,7 +34,7 @@ Use it especially when the task benefits from:
    - What domain concept is this function modeling?
 
 2. Check purity.
-   - Does this function have side effects (I/O, mutation, randomness)?
+   - Does this function have observable effects (I/O, changes to caller-owned or shared state, randomness)?
    - Can the side effects be pushed to the boundary?
 
 3. Check composition.
@@ -64,7 +64,7 @@ Use it especially when the task benefits from:
 
 ### Composition over imperative sequencing
 
-- Prefer expressing pipelines over step-by-step instructions.
+- Use a pipeline when it clarifies data flow; keep named intermediate steps or a local loop when they are easier to understand.
 - Small functions combined with `pipe` or `compose` reveal the shape of the transformation.
 - Point-free style removes noise when the data flow is already clear from the pipeline.
 
@@ -76,9 +76,9 @@ Use it especially when the task benefits from:
 
 ### Immutability as the default
 
-- Never mutate data in place — produce new values instead.
+- Preserve caller-owned data and shared state. Private accumulators can be observably pure when they do not escape.
 - Use `Object.freeze`, `readonly`, immutable records, or persistent data structures.
-- Mutation is a side effect. Treat it as one.
+- Mutation of caller-owned or shared state is an effect; private state that never escapes can preserve observable purity.
 
 ### Higher-order functions as vocabulary
 
@@ -92,13 +92,13 @@ Use it especially when the task benefits from:
 - Prefer pure functions. Extract impure operations to the boundary.
 - Name functions by the transformation they perform, not the mechanism.
 - Use `pipe` (left-to-right) or `compose` (right-to-left) to express data flow.
-- Replace `null` with `Maybe`/`Option` when absence is meaningful.
+- Model meaningful absence with `Maybe`/`Option` or the project's native equivalent; preserve established boundary contracts.
 - Replace `throw` with `Either`/`Result` when callers need to handle failures.
 - Curry functions when partial application makes call sites cleaner.
-- Prefer immutable data structures. Mutate only at system boundaries.
-- Use `map`/`filter`/`reduce` over imperative loops by default.
+- Prefer immutable values; keep any necessary mutation private to its owner or explicit at an effect boundary.
+- Prefer transformations that reveal intent; a local loop is valid when a pipeline obscures the algorithm or adds material copying cost.
 - Keep functions small — one transformation, one level of abstraction.
-- Avoid hidden state (closures that mutate captured variables are side effects).
+- Make state that persists between calls explicit; a closure that changes such state affects later observations.
 
 ## Good Signals
 
@@ -119,6 +119,8 @@ Use it especially when the task benefits from:
 - Deeply nested callbacks or `.then()` chains that mix logic with I/O.
 
 ## References
+
+- Read `references/typed-boundaries.md` when choosing stronger types, validating external data, or weighing local mutation against a pipeline.
 
 - Read `references/core-principles.md` for the fundamental FP principles: purity, immutability, referential transparency, and composition.
 - Read `references/naming-and-abstractions.md` when naming or abstraction quality is the main issue.

@@ -1,10 +1,10 @@
 ---
 name: oop-best-practices
-description: Day-to-day OOP guidance for writing and reviewing clean, maintainable code. Use when naming classes and methods, defining object boundaries, introducing or reviewing Value Objects (equality, hashing, immutability, parsing, normalization, optionality), designing first-class collections, applying Tell Don't Ask or Law of Demeter, enforcing Object Calisthenics, reducing cohesion problems, choosing between inheritance and composition, or reviewing SOLID violations in TypeScript, Java, C#, Python, Ruby, PHP, Go, or Rust.
+description: Use when designing or reviewing object responsibilities, naming, encapsulation, value-object equality, immutability, parsing or normalization, collections, cohesion, dependency direction, Tell Don't Ask, Law of Demeter, Object Calisthenics, SOLID, or composition versus inheritance. Focuses on everyday object design; use DDD for context boundaries and pattern guidance for named pattern selection.
 license: MIT
 metadata:
   author: luckys
-  version: "1.0.0"
+  version: "1.1.0"
 ---
 
 # OOP Best Practices
@@ -107,6 +107,8 @@ Use it especially when the task benefits from:
 
 ## References
 
+- Read `references/interface-depth.md` when assessing interface complexity, pass-through layers, or the state a caller must track.
+
 - Read `references/core-principles.md` for condensed coding heuristics.
 - Read `references/book-influences.md` for a source-oriented map of the key books behind this skill.
 - Read `references/naming-and-abstractions.md` when naming or abstraction quality is the main issue.
@@ -137,7 +139,7 @@ Use it especially when the task benefits from:
 
 This skill is synthesized from ideas emphasized in:
 
-- `Codigo Sostenible` by Carlos Blé
+- `Sustainable Code` by Carlos Blé
 - `Implementation Patterns` by Kent Beck
 - `Practical Object-Oriented Design in Ruby` by Sandi Metz
 - `99 Bottles of OOP` by Sandi Metz

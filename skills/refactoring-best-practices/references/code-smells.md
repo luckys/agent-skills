@@ -2,6 +2,8 @@
 
 Use this reference when you need to name what is wrong with a piece of code and decide which refactoring move to apply first.
 
+Passages from Spanish-language sources are paraphrased in English. Book and chapter titles are rendered in English: Sustainable Code is by Carlos Blé, and Everyday Refactoring is by Fran Iglesias.
+
 ## Long Method
 
 Recognition signals:
@@ -41,7 +43,7 @@ Move to apply: Extract Class; Extract Interface / Protocol when callers only use
 Recognition signals:
 - A method calls several methods on another object, or accesses several of its fields, more than its own
 - A method needs to pull data out of a collaborator before it can do its work
-- A Service class contains all the logic while model classes hold only raw data (Codigo Sostenible, Ch. 6 — "Service se dedica a saquearles, porque no posee ningún dato propio — les envidia")
+- A Service class contains all the logic while model classes hold only raw data; the service depends on their data because it owns none of its own (Sustainable Code, Ch. 6)
 
 What it means:
 - The behavior belongs to the object whose data it uses, not to the class where it lives
@@ -56,7 +58,7 @@ Move to apply: Move Method to the class whose data the method most uses
 Recognition signals:
 - The same group of two or more fields appears together in multiple class definitions
 - The same set of parameters is repeated across several method signatures
-- Removing one item from the group makes the remaining items meaningless on their own (refactorcotidiano, Ch. "Deja atrás lo primitivo")
+- Removing one item from the group makes the remaining items meaningless on their own (Everyday Refactoring, Ch. "Leave Primitive Types Behind")
 
 What it means:
 - The group of data represents a concept that does not yet have a name in the code
@@ -73,7 +75,7 @@ Recognition signals:
 - Validation of a value is repeated wherever the value is used
 - A parameter named `email`, `currency`, or `status` is typed as `string` or `int`
 - Many methods take the same primitive argument and share the same conditional logic on it (99 Bottles of OOP, Ch. 5 — "Primitive Obsession is when you use one of these data types to represent a concept in your domain")
-- The refactorcotidiano book calls this out explicitly: encapsulating a primitive is "Replace Data with Object" and yields consistency across the domain (refactorcotidiano, Ch. "Deja atrás lo primitivo")
+- The Everyday Refactoring book calls this out explicitly: encapsulating a primitive is "Replace Data with Object" and yields consistency across the domain (Everyday Refactoring, Ch. "Leave Primitive Types Behind")
 
 What it means:
 - Domain rules live outside the domain concept they belong to
@@ -87,7 +89,7 @@ Move to apply: Introduce Value Object
 
 Recognition signals:
 - A single conceptual change requires edits in many unrelated classes
-- Accessing a shared data structure directly from multiple call sites means every structural change ripples outward (refactorcotidiano, "si cambiamos la estructura de datos, tendremos que cambiar el código que la usa — un caso de Shotgun Surgery")
+- Accessing a shared data structure directly from multiple call sites means every structural change ripples outward (Everyday Refactoring)
 - Every new requirement means touching five files instead of one
 
 What it means:
@@ -133,7 +135,7 @@ Move to apply: Inline Method to remove the delegation layer; if the class still 
 Recognition signals:
 - A class accesses the internal data structure of another class directly rather than through its interface
 - Two classes navigate each other's private fields or reach through each other's internals
-- Accessing a collaborator's concrete structure creates coupling that propagates: "si accedemos a la estructura de datos directamente, estamos acoplando el código que la usa a la estructura de datos concreta — es un caso de Inappropriate Intimacy" (refactorcotidiano)
+- Accessing a collaborator's concrete structure couples callers to that representation and propagates changes (Everyday Refactoring)
 - One class reconstructs or replicates logic that belongs to another
 
 What it means:
@@ -150,7 +152,7 @@ Recognition signals:
 - A comment restates what the code already says in plain English
 - A comment explains what a block does rather than why
 - A blank line with no comment separates two blocks inside a method that each have their own purpose
-- A comment was written to compensate for a poor name (refactorcotidiano, Ch. "Cuando los comentarios confunden" — comments become unnecessary when a method is given an expressive name)
+- A comment was written to compensate for a poor name (Everyday Refactoring, Ch. "When Comments Confuse" — comments become unnecessary when a method is given an expressive name)
 - A comment is out of date and contradicts the code — a "lying comment"
 
 What it means:
@@ -182,7 +184,7 @@ Recognition signals:
 - The class contains only private fields with public getters and setters for each
 - No method on the class transforms, validates, or makes a decision using its own data
 - Other classes reach into this class to retrieve data and perform operations with it elsewhere
-- Codigo Sostenible calls this the "anemic model": "una clase que tiene una serie de campos privados, setters y getters para todos ellos, y nada más, es lo que se denomina modelo anémico" (Codigo Sostenible, Ch. 6)
+- Sustainable Code calls a class with private fields and getters and setters for each, but no behavior, an "anemic model" (Sustainable Code, Ch. 6)
 
 What it means:
 - Behavior that belongs to the object is living outside it, in service or utility classes

@@ -1,10 +1,10 @@
 ---
 name: refactoring-best-practices
-description: Safe refactoring guidance for legacy and existing codebases. Use when improving design without changing behavior, creating seams around hard dependencies, migrating null/string/generic exceptions to typed failure contracts, extracting a repository from direct SQL/ORM access, introducing Domain Events into legacy workflows, adding characterization tests, splitting large classes or methods, introducing value objects, replacing conditionals, or incrementally evolving code under risk.
+description: Use when changing existing structure without changing behavior, adding characterization tests, isolating hard dependencies, consolidating APIs, migrating callers, introducing value objects or domain events, replacing null/string/generic exceptions with typed failure contracts, or removing legacy paths safely. Applies to protected incremental change, not an unverified rewrite or unrelated cleanup.
 license: MIT
 metadata:
   author: luckys
-  version: "1.0.0"
+  version: "1.1.0"
 ---
 
 # Refactoring Best Practices
@@ -79,6 +79,8 @@ Use this skill when the main challenge is changing existing code safely.
 - the change is broad but the understanding is still weak
 
 ## References
+
+- Read `references/compatibility-and-migration.md` when changing callers, deleting legacy paths, or migrating persisted representations.
 
 - Read `references/safe-change-workflow.md` for seam-based refactoring guidance, sensing and separation, and the legacy code change algorithm.
 - Read `references/refactoring-moves.md` for tactical moves, including the incremental Value Object migration sequence, and when to use them.

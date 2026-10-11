@@ -2,7 +2,7 @@
 
 ## Core Rule
 
-URLs identify resources. HTTP methods express what to do with them. Never mix both responsibilities into the URL.
+URLs identify resources. HTTP methods express transport semantics; avoid repeating them in paths such as `/getUsers`. A domain action can be represented as a task subresource, as described below.
 
 ```
 # Wrong — verbs in URL

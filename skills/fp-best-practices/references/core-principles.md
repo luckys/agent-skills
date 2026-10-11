@@ -42,7 +42,7 @@ Referential transparency makes code easier to reason about: you can evaluate any
 
 ## Immutability
 
-Never mutate data in place. Produce new values instead.
+Preserve caller-owned and shared data. Producing new values is the default; a private, non-escaping accumulator can remain observably pure. See `typed-boundaries.md` for the scope and performance trade-off.
 
 ```javascript
 // Mutable — modifies the original

@@ -1,10 +1,10 @@
 ---
 name: design-patterns-best-practices
-description: Pattern selection and application guidance for OO systems. Use when choosing a GoF pattern (Strategy, State, Observer, Command, Factory, Builder, Decorator, Proxy, Adapter, Composite, etc.), applying PoEAA enterprise patterns (Transaction Script, Service Layer, Data Mapper, Unit of Work, Repository, Gateway, DTO, Money, Special Case), implementing the Criteria pattern, applying Clean Architecture layers, or reviewing whether a pattern reduces or adds accidental complexity.
+description: Use when selecting or reviewing GoF, enterprise, Criteria, or Clean Architecture patterns. Compare the current change pressure with a direct solution and assess coupling, interface cost, and fit; use the OOP skill for routine object design.
 license: MIT
 metadata:
   author: luckys
-  version: "1.0.0"
+  version: "1.1.0"
 ---
 
 # Design Patterns Best Practices
@@ -109,6 +109,8 @@ Use `ddd-best-practices` when the main decision is Aggregate repository semantic
 - The team has to understand the pattern before it can understand the business rule.
 
 ## References
+
+- Read `references/pattern-fit-evidence.md` when comparing a pattern with a direct solution or checking whether a new seam earns its cost.
 
 - Read `references/pattern-selection-guide.md` for pattern-to-problem mapping.
 - Read `references/composition-vs-inheritance.md` for structural trade-offs.

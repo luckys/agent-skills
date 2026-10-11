@@ -213,6 +213,8 @@ Prefer an application Outbox once the writer can change.
 | Ordered Aggregate stream | Partition by Aggregate and carry source version |
 | Legacy writer cannot change | CDC translated to Integration Events |
 
+For stable operation identity, crash recovery, and shared-invariant coordination across adapters, also read `retry-and-concurrency.md`.
+
 ## Review Checklist
 
 - Do state and Outbox append share one real transaction context?

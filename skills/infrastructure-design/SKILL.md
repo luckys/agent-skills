@@ -1,10 +1,10 @@
 ---
 name: infrastructure-design
-description: Infrastructure pattern guidance for DDD and hexagonal architecture applications. Use when implementing an event bus or broker relay, applying Outbox, Inbox, retry, dead-letter, ordering, or Change Data Capture patterns, managing database transactions or optimistic Aggregate concurrency, designing cache-aside strategies with Redis, building database views or materialized views, or choosing between synchronous and asynchronous event delivery.
+description: Use when designing event buses or broker relays, Outbox/Inbox and CDC delivery, retries, ordering, dead-letter replay, crash recovery, concurrent workers, transaction boundaries, optimistic Aggregate concurrency, Redis caching, or database views in layered applications. Focuses on real adapter guarantees and coordination; use DDD for aggregate and context ownership.
 license: MIT
 metadata:
   author: luckys
-  version: "1.0.0"
+  version: "1.1.0"
 ---
 
 # Infrastructure Design
@@ -38,7 +38,7 @@ Practical infrastructure patterns for layered (hexagonal/DDD) applications. The 
 - **Transactions wrap units of work** — application code or a typed decorator owns the business boundary; repositories join the scoped transaction and do not commit it independently.
 - **Cache is a derived copy** — add it only for a measured problem, with explicit freshness, invalidation, privacy, failure, and removal policies.
 - **Views abstract queries, not business logic** — a view is a saved SELECT, not a substitute for a domain model.
-- **Durability is designed, not implied** — asynchronous delivery is reliable only with durable handoff, idempotent consumers, retries, dead-letter handling, and observability.
+- **Durability is designed, not implied** — persist critical events with their writes; asynchronous delivery needs durable handoff, idempotent consumers, retries, dead-letter handling, and observability. Synchronous versus asynchronous delivery is a separate latency and coupling decision.
 
 ## Related Skills
 
@@ -50,6 +50,8 @@ Practical infrastructure patterns for layered (hexagonal/DDD) applications. The 
 - `data-migration-best-practices` — snapshot/backfill, live-delta handoff, reconciliation, cutover, and repair workflow
 
 ## References
+
+- Read `references/retry-and-concurrency.md` when an operation can be retried, resumed, or executed by concurrent workers.
 
 - `references/event-bus.md` — synchronous failure policy, transactional Outbox, relay claiming, fan-out, Inbox/idempotency, ordering, retries, dead-letter/replay, RabbitMQ and AWS EventBridge/SQS semantics, brokers, and CDC
 - `references/transactions.md` — transaction placement, Aggregate consistency boundaries, optimistic concurrency, decorator pattern, unit of work

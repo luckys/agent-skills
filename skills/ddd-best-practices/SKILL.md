@@ -1,10 +1,10 @@
 ---
 name: ddd-best-practices
-description: Domain-Driven Design guidance for modeling complex domains. Use when designing Bounded Contexts or Subdomains, discovering Aggregate boundaries from invariants and transactions, defining Aggregate Roots, designing Domain Events, typed domain failures, or repository contracts, choosing exception vs Result/Either/Option semantics, choosing Repository vs DAO/query service/gateway, splitting oversized Aggregates, coordinating cross-Aggregate consistency, applying Context Mapping patterns, implementing CQRS or Event Sourcing, building a Ubiquitous Language, applying Hexagonal Architecture, or reviewing layer ownership.
+description: Use when modeling domain language, subdomains, bounded contexts, aggregates and invariants, value objects, domain events, typed domain failures, repository contracts, cross-aggregate consistency, context integration, CQRS, Event Sourcing, or hexagonal architecture. Focuses on domain ownership and consistency; use infrastructure guidance for delivery, storage, and transaction mechanisms.
 license: MIT
 metadata:
   author: luckys
-  version: "1.0.0"
+  version: "1.1.0"
 ---
 
 # DDD Best Practices
@@ -36,8 +36,9 @@ Use this skill when the main question is how to model a domain, where to draw bo
    - Start from one business command and state the invariants it must preserve.
    - Include only state that must commit or reject atomically.
    - Each Aggregate has one root Entity that controls access.
-   - Reference other Aggregates by identity and make eventual consistency explicit.
-   - Check lifecycle, cardinality, contention, and concurrency; table count does not define the boundary.
+   - Enforce invariants within the Aggregate boundary only.
+   - Reference other Aggregates by identity, never by object reference, and make eventual consistency explicit.
+   - Check lifecycle, cardinality, contention, and concurrency; table count does not define the consistency boundary.
 
 4. **Model with tactical patterns.**
    - Entity: has identity that persists over time.
@@ -97,6 +98,8 @@ Return complete Aggregates for invariant-bearing work; use dedicated query model
 - Read `references/aggregates.md` for Aggregate discovery, boundary signals, rule ownership, creation vs. reconstitution, concurrency, cross-Aggregate coordination, persistence, and review checklists.
 - Read `references/repositories.md` for repository semantics, contract ownership, Repository vs DAO/query service/gateway, absence, mapping, transactions, caching, pagination, testing, and legacy migration.
 - Read `references/domain-events.md` for event semantics, granularity, payload/envelope design, aggregate recording, creation vs reconstitution, Integration Event translation, subscribers, and delivery boundaries.
+- Read `references/model-evidence.md` when resolving terminology, ownership, lifecycle states, or a consequential domain decision.
+
 - Read `references/tactical-patterns.md` for Entities, Value Objects, Aggregates, Domain Services, Domain Events, Repositories, Factories.
 - Read `references/strategic-design.md` for Subdomains (Core/Supporting/Generic), Bounded Contexts, and Ubiquitous Language.
 - Read `references/context-mapping.md` for Context Map patterns: Partnership, Shared Kernel, Customer-Supplier, Conformist, ACL, Open Host Service, Published Language.

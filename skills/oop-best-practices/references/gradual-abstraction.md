@@ -28,7 +28,7 @@ When weighing duplication against abstraction, ask:
 
 If abstracting now would muddy the waters or require naming something you do not yet fully understand, wait. If the future cost of doing nothing is low, do nothing. Time often delivers better information — and sometimes the change never arrives at all.
 
-Codigo Sostenible frames this as designing for the present: code written to anticipate unknown future scenarios becomes a liability. Writing generic, reusable structures before any real use has happened is the recipe for complexity that is harder to maintain than it would have been to simply rewrite. The bottleneck in large projects is not typing new lines — it is understanding and modifying existing ones.
+Sustainable Code frames this as designing for the present: code written to anticipate unknown future scenarios becomes a liability. Writing generic, reusable structures before any real use has happened is the recipe for complexity that is harder to maintain than it would have been to simply rewrite. The bottleneck in large projects is not typing new lines — it is understanding and modifying existing ones.
 
 ## Flocking Rules: The Step-by-Step Process for Finding Abstraction
 

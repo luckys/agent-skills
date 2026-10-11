@@ -41,6 +41,7 @@ Day-to-day OOP guidance for writing and reviewing clean, maintainable code.
 - Value equality/hashing, deep immutability, parsing/normalization, optionality, and persistence mapping
 - Message-based design and role-oriented objects
 - SOLID principles in practice
+- Interface depth, caller knowledge, and the cost of indirection
 - Examples in TypeScript, Java, Python, C#, Ruby, PHP, Go, and Rust
 
 ### refactoring-best-practices
@@ -52,6 +53,7 @@ Safe change guidance for legacy and existing codebases.
 - Splitting large classes and methods
 - Sprout, Wrap, and Extract-and-Override techniques
 - Decision rules: refactor now vs wait
+- Consumer compatibility, caller migration, and restartable data migrations
 
 ### design-patterns-best-practices
 
@@ -63,6 +65,7 @@ Pattern selection and application guidance for OO systems.
 - Typed Criteria ASTs, backend capability mappings, safe SQL conversion, joins, and stable cursors
 - Clean Architecture layers and the Dependency Rule
 - Kent Beck's Implementation Patterns
+- Evidence for pattern fit and comparison with a direct solution
 - Examples in TypeScript, Java, Python, C#, Ruby, PHP, Go, and Rust
 
 ### ddd-best-practices
@@ -80,6 +83,7 @@ Domain-Driven Design guidance for modeling complex domains.
 - CQRS, Event Sourcing, Event Storming, Saga, Outbox/Inbox
 - Hexagonal Architecture (Ports & Adapters)
 - TypeScript DDD skeleton with base classes and use case structure
+- Model evidence, explicit lifecycle transitions, and proportionate decision records
 
 ### infrastructure-design
 
@@ -92,6 +96,7 @@ Infrastructure pattern guidance for DDD and hexagonal architecture applications.
 - Aggregate optimistic versioning and stale-write conflict handling
 - Cache-aside with Redis, cache key strategies
 - Database views, materialized views, and MySQL trigger patterns
+- Stable operation identity, crash recovery, and coordination of shared invariants
 
 ### tdd-best-practices
 
@@ -107,6 +112,7 @@ Test-Driven Development guidance for driving implementation from tests.
 - Domain Event, subscriber, Event Bus, Outbox/Inbox, and CDC contract tests
 - Typed error/Result composition, exhaustive mapping, redaction, and unknown-failure tests
 - Criteria parser/AST, backend semantics, injection, joins, and pagination traversal tests
+- Independent test oracles, defect reproduction, and repository-specific feedback loops
 - Examples in TypeScript, Java, Python, C#, Ruby, PHP, Go, and Rust
 
 ### fp-best-practices
@@ -119,6 +125,7 @@ Functional Programming guidance for writing clean, composable, and predictable c
 - Making illegal states unrepresentable with branded types
 - Separating pure core from impure shell; dependency injection via function parameters
 - Higher-order functions: map, filter, reduce, flatMap, transducers, functors, monads
+- Typed trust boundaries, actual partiality, and observably pure local accumulators
 - Examples in JavaScript, TypeScript, Python, Haskell, Elm, Clojure, F#, Elixir, Go, and Rust
 
 ### rest-api-best-practices
@@ -132,6 +139,7 @@ REST API design guidance for building clean, consistent, and consumer-friendly A
 - Security: JWT, API keys, OAuth 2.0, rate limiting, CORS, and HTTPS enforcement
 - CRUD anti-pattern: why task-based APIs (`POST /orders/{id}/cancel`) are more expressive than raw CRUD
 - HATEOAS, REST architectural constraints, and API-as-a-product thinking
+- Atomic idempotency claims, unknown outcomes, replay authorization, and compatibility
 - Examples in TypeScript (Express, NestJS), Python (FastAPI, DRF), Go (Chi), PHP (Laravel), and Java (Spring Boot)
 
 ## Usage
@@ -169,6 +177,8 @@ skills/<skill-name>/
 
 Each `SKILL.md` has a `description` field in its YAML frontmatter that acts as the activation trigger. The agent reads it to decide whether to load the full skill.
 
+Reference pointers describe when to read each document. Load the relevant references for the current decision rather than the entire reference directory. The instructions preserve the project's language, tools, conventions, and existing contracts.
+
 ## Source Influences
 
 Skills are synthesized from:
@@ -193,3 +203,7 @@ Skills are synthesized from:
 - RFC 9457 (Problem Details), RFC 9110 (HTTP Semantics)
 - Fran Iglesias — API REST series (franiglesias.github.io)
 - Derek Comartin — "CRUD APIs are Poor Design" (codeopinion.com)
+
+Selected operational guidance was also adapted from [Matt Pocock's skills](https://github.com/mattpocock/skills), [Addy Osmani's agent-skills](https://github.com/addyosmani/agent-skills), and [Cursor's pstack skills](https://github.com/cursor/plugins/tree/main/pstack/skills). Each affected skill includes its source links and MIT notices in `references/third-party-notices.md`.
+
+The [comparative review](docs/upstream-skill-review.md) explains the overlap, retained and rejected approaches, and validation limits. The [source manifest](docs/upstream-review-sources.json) pins the reviewed revisions and file hashes.
