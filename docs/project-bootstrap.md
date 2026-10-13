@@ -1,6 +1,6 @@
 # Boost: Analyze, Find, and Install Project Skills
 
-Boost analyzes the current project's languages, frameworks, libraries, and versions, searches official skill repositories and skills.sh, selects the best fitting skills, and installs them as symbolic links. Run it from a fresh client session in the project directory:
+Boost analyzes the project's stack, current and desired architecture, CI, deployment, observability and complete delivery lifecycle. It searches skills.sh, prioritizes compatible personal skills, reviews official upstream contents and adoption metrics, and installs complete relevant coverage as symbolic links. Run it from a fresh client session in the project directory:
 
 | Client | Set up skills | Resume or organize work |
 |---|---|---|
@@ -50,11 +50,15 @@ python3 -B ~/.agents/skills/boost/scripts/resources.py inspect --project "$PWD"
 python3 -B ~/.agents/skills/boost/scripts/resources.py prepare
 python3 -B ~/.agents/skills/boost/scripts/resources.py catalog --query "vue"
 python3 -B ~/.agents/skills/boost/scripts/resources.py search "oop" --owner luckys
-python3 -B ~/.agents/skills/boost/scripts/resources.py search "vue best practices"
+python3 -B ~/.agents/skills/boost/scripts/resources.py search "vue best practices" --json
 python3 -B ~/.agents/skills/boost/scripts/resources.py fetch owner/repository
 ```
 
-Read candidates and write the [selection JSON](../skills/boost/references/selection.md), then preview, apply, and verify:
+Inspect requirements, ADRs, deployment/IaC, CI and operational evidence as well as the stack. Distinguish existing code from documented target architecture and unresolved decisions. Review every detected capability, remaining direct dependency and all twelve lifecycle areas in the [selection reference](../skills/boost/references/selection.md). There is no fixed limit on project skills; one skill may cover several capabilities, while generic methodology does not replace runner or library guidance.
+
+Prioritize compatible personal skills. For community alternatives, compare compatibility and quality before skills.sh installs, repository stars and published downloads. The JSON search preserves dated, rounded install counts and source URLs; downloads remain unknown when unpublished. Record these observations and the selection rationale. A Dockerfile proves container packaging, not a cloud provider; missing deployment or telemetry choices remain visible in the report.
+
+Read candidates and write the selection JSON with complete `coverage`, explicit `omissions`, and `lifecycle` assessments, then preview, apply, and verify:
 
 ```bash
 python3 -B ~/.agents/skills/boost/scripts/resources.py install --project "$PWD" --selection /absolute/path/selection.json

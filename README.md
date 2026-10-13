@@ -6,7 +6,7 @@ A curated collection of reusable agent skills for software design, refactoring, 
 
 ## Installation
 
-For a minimal global setup with project-specific symlinks, use the [project bootstrap guide](docs/project-bootstrap.md). Boost analyzes the actual stack and versions, uses the global upstream `find-skills` helper to discover suitable resources, downloads them with `pnpx skills add`, and links the official packages into the project.
+For a minimal global setup with project-specific symlinks, use the [project bootstrap guide](docs/project-bootstrap.md). Boost analyzes the stack and versions, current and desired architecture, CI, deployment, observability and the complete delivery lifecycle. It prioritizes compatible personal skills, compares community adoption and quality, downloads reviewed resources with `pnpx skills add`, and links the official packages into the project. Coverage and unresolved decisions are recorded and verified.
 
 Install all skills into your project using the [skills CLI](https://www.skills.sh):
 
@@ -39,7 +39,7 @@ Select and install project resources based on repository evidence and the reques
 
 Run `$boost` in Codex, or `/boost` in OpenCode and Antigravity CLI, from a fresh session in the project directory.
 
-- Analyze languages, frameworks, libraries, declared/resolved versions, and toolchains
+- Analyze languages, frameworks, libraries, declared/resolved versions, toolchains, current/desired architecture and the complete delivery lifecycle
 - Search skills.sh with find-skills, checking `luckys/agent-skills` first and using other repositories for gaps or incompatibilities
 - Review content and native client compatibility before installation
 - Pin upstream revisions and fingerprint supporting files

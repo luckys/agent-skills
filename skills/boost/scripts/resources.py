@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import argparse
+from datetime import datetime, timezone
 from contextlib import contextmanager
 import fcntl
 import hashlib
@@ -16,6 +17,7 @@ import sys
 import tempfile
 
 import yaml
+import analysis
 
 CLIENTS = {"codex", "opencode", "antigravity"}
 SKIP = {".git", "node_modules", ".venv", "venv", "__pycache__", ".next", ".nuxt", "dist", "build", "target", "vendor", ".cache"}
@@ -106,6 +108,27 @@ def search_command(query, owner=None):
     return command
 
 
+def search_results(query, owner=None):
+    """Keep the directory's displayed counts; rounded installs are not downloads."""
+    completed = subprocess.run(search_command(query, owner), check=True, timeout=60,
+                               stdin=subprocess.DEVNULL, capture_output=True, text=True)
+    output = re.sub(r'\x1b\[[0-9;]*m', '', completed.stdout)
+    entries = []
+    observed = datetime.now(timezone.utc).isoformat()
+    lines = output.splitlines()
+    for index, line in enumerate(lines):
+        match = re.fullmatch(r'([A-Za-z0-9_.-]+/[A-Za-z0-9_.-]+)@([A-Za-z0-9_.-]+)\s+([\d.,]+[KMkm]?) installs\s*', line.strip())
+        if not match:
+            continue
+        url = re.search(r'https://(?:www\.)?skills\.sh/[^\s]+', lines[index + 1]) if index + 1 < len(lines) else None
+        entries.append({'repository': match[1], 'skill': match[2], 'installs_display': match[3],
+                        'url': url[0] if url else f'https://skills.sh/{match[1]}/{match[2]}',
+                        'observed_at': observed, 'downloads': None,
+                        'downloads_reason': 'The directory search publishes installs, not download counts.'})
+    return {'query': query, 'owner': owner, 'results': entries,
+            'warnings': [] if entries else ['No structured results parsed; inspect the CLI output or skills.sh directly.']}
+
+
 def catalog(registry):
     resources, warnings = [], []
     formats = {"skill": sorted(CLIENTS), "antigravity-agent": ["antigravity"], "codex-agent": ["codex"],
@@ -154,17 +177,19 @@ def inspect_project(project):
     facts = {"project": str(project), "manifests": [], "scripts": {}, "dependencies": {}, "extensions": {}, "instructions": [],
              'toolchains': {}, 'resolved_versions': {}, 'lockfiles_not_parsed': []}
     visited = 0
+    paths = []
     for current, dirs, files in os.walk(project, followlinks=False):
         depth = len(Path(current).relative_to(project).parts)
-        dirs[:] = sorted(d for d in dirs if d not in SKIP and not d.startswith('.') and not (Path(current) / d).is_symlink()) if depth < 4 else []
+        dirs[:] = sorted(d for d in dirs if d not in SKIP and (not d.startswith('.') or d in {'.github', '.circleci'}) and not (Path(current) / d).is_symlink()) if depth < 8 else []
         for name in sorted(files):
             path = Path(current) / name
             if not path.is_symlink() and name in {'.nvmrc', '.node-version', '.python-version', '.ruby-version'}:
                 value = path.read_text().strip()
                 if re.fullmatch(r'[A-Za-z0-9/._*-]{1,80}', value):
                     facts['toolchains'][str(path.relative_to(project))] = value
-            if path.is_symlink() or name.startswith('.'):
+            if path.is_symlink() or (name.startswith('.') and name != '.gitlab-ci.yml'):
                 continue
+            paths.append(str(path.relative_to(project)))
             if name in {"AGENTS.md", "CLAUDE.md", "GEMINI.md"}:
                 facts['instructions'].append(str(path.relative_to(project)))
             if name in {"package.json", "pyproject.toml", "requirements.txt", "Cargo.toml", "go.mod", "pom.xml", "build.gradle", "composer.json", "Gemfile"}:
@@ -191,9 +216,9 @@ def inspect_project(project):
             visited += 1
             if visited >= 4000:
                 facts['truncated'] = True
-                return frontend_facts(facts)
+                return analysis.augment(project, frontend_facts(facts), paths)
     facts['truncated'] = False
-    return frontend_facts(facts)
+    return analysis.augment(project, frontend_facts(facts), paths)
 
 
 def frontend_facts(facts):
@@ -412,7 +437,19 @@ def doctor(project):
                 issues.append(f"Content changed since review: {item['id']}")
         except (ValueError, OSError) as exc:
             issues.append(str(exc))
-    return {"project": str(project), "resources": len(lock['resources']), "issues": issues, "ok": not issues}
+    coverage_status = 'not-recorded'
+    if 'coverage' in lock or 'lifecycle' in lock:
+        try:
+            facts = inspect_project(project)
+            analysis.validate_coverage(project, facts, lock, [], lock, fingerprint)
+            if 'stack' in lock and lock['stack'] != analysis.stack_snapshot(facts):
+                raise ValueError('Project stack/version evidence changed since selection; rerun boost and review compatibility.')
+            coverage_status = 'verified-declarations'
+        except (ValueError, OSError) as exc:
+            coverage_status = 'incomplete'
+            issues.append(str(exc))
+    return {"project": str(project), "resources": len(lock['resources']), "issues": issues,
+            'coverage_status': coverage_status, "ok": not issues}
 
 
 def uninstall(project, apply=False):
@@ -512,6 +549,7 @@ def main():
     child = commands.add_parser('search')
     child.add_argument('query')
     child.add_argument('--owner', help='Restrict skills.sh search to this GitHub owner.')
+    child.add_argument('--json', action='store_true', help='Return dated adoption metrics and directory URLs.')
     commands.add_parser('prepare')
     child = commands.add_parser('fetch')
     child.add_argument('repository')
@@ -534,8 +572,11 @@ def main():
             matches = [item for item in items if all(term in (item['name'] + ' ' + item['description'] + ' ' + item['source']).lower() for term in terms)]
             result = {"resources": matches[:max(args.limit, 0)], "matching": len(matches), "total": len(items), "warnings": warnings}
         elif args.command == 'search':
-            subprocess.run(search_command(args.query, args.owner), check=True, timeout=60, stdin=subprocess.DEVNULL)
-            return
+            if args.json:
+                result = search_results(args.query, args.owner)
+            else:
+                subprocess.run(search_command(args.query, args.owner), check=True, timeout=60, stdin=subprocess.DEVNULL)
+                return
         elif args.command == 'prepare':
             from official import prepare
             result = prepare(args.registry)

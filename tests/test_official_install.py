@@ -41,7 +41,12 @@ class OfficialInstallTest(unittest.TestCase):
 
     def selection(self, *names):
         items, _ = r.catalog(self.registry)
-        return {'clients': ['codex', 'opencode', 'antigravity'], 'resources': [
+        facts = r.inspect_project(self.project)
+        return {'clients': ['codex', 'opencode', 'antigravity'],
+                'omissions': {name: 'This fixture deliberately excludes unrelated framework tooling.' for name in facts['capabilities'] if name != 'frontend-design'},
+                'lifecycle': {area: {'status': 'not-applicable', 'reason': 'Isolated installer fixture with no delivery requirements.'} for area in official.analysis.AREAS},
+                'coverage': {'frontend-design': {'resources': [item['id'] for item in items if item['name'] == 'frontend-design' and item['name'] in names], 'reason': 'Reviewed interface design guidance for this fixture.'}},
+                'resources': [
             {'id': item['id'], 'reviewed_sha256': item['sha256'], 'reason': 'Observed project evidence'}
             for item in items if item['name'] in names]}
 
@@ -165,7 +170,7 @@ class OfficialInstallTest(unittest.TestCase):
         with self.assertRaisesRegex(ValueError, 'frontend-design'):
             official.install(self.project, self.selection('testing'), self.registry)
         selected = self.selection('testing')
-        selected['omissions'] = {'frontend-design': 'User explicitly requests only a backend change in this monorepo.'}
+        selected['omissions']['frontend-design'] = 'User explicitly requests only a backend change in this monorepo.'
         official.install(self.project, selected, self.registry)
 
     def test_react_vue_and_plain_html_recommend_the_official_design_skill(self):
@@ -232,6 +237,62 @@ class OfficialInstallTest(unittest.TestCase):
         (self.project / 'package.json').write_text(json.dumps({'dependencies': {'react': '^19.0.0'}}))
         result = official.install(self.project, self.selection('frontend-design'), self.registry)
         self.assertEqual(result['plan'][0]['repository'], 'luckys/agent-skills')
+
+    def test_framework_selection_cannot_silently_omit_installed_tooling(self):
+        (self.project / 'package.json').write_text(json.dumps({'devDependencies': {'typescript': '6.0.3', 'vitest': '4.1.10'}, 'dependencies': {'drizzle-orm': '0.45.2'}}))
+        selected = self.selection('testing')
+        selected.pop('omissions')
+        with self.assertRaisesRegex(ValueError, 'Missing capability coverage: drizzle'):
+            official.install(self.project, selected, self.registry, True)
+        self.run.assert_not_called()
+        self.assertFalse((self.project / '.agents').exists())
+
+    def test_retained_skill_can_cover_tooling_but_changed_content_cannot(self):
+        selected = self.selection('testing')
+        official.install(self.project, selected, self.registry, True)
+        self.skill('writing')
+        (self.project / 'package.json').write_text(json.dumps({'devDependencies': {'vitest': '4.1.10'}}))
+        selected = self.selection('writing')
+        selected['omissions'] = {}
+        selected['coverage'] = {'vitest': {'resources': ['personal:skill:testing'], 'reason': 'Retained skill explicitly covers this runner version.'}}
+        official.install(self.project, selected, self.registry, True)
+        lock = r.read_json(self.project / '.agents/resource-lock.json')
+        self.assertEqual(lock['coverage']['vitest'], selected['coverage']['vitest'])
+        (self.project / '.agents/skills/testing/SKILL.md').write_text('Unreviewed changes')
+        with self.assertRaisesRegex(ValueError, 'unavailable or changed'):
+            official.install(self.project, selected, self.registry)
+
+    def test_lifecycle_cannot_be_skipped_and_desired_architecture_is_recorded(self):
+        (self.project / 'package.json').write_text('{}')
+        selected = self.selection('testing')
+        selected.pop('lifecycle')
+        with self.assertRaisesRegex(ValueError, 'Missing lifecycle assessment: requirements'):
+            official.install(self.project, selected, self.registry)
+        selected['lifecycle'] = {area: {'status': 'unknown', 'reason': 'No decision is documented in this fixture.'} for area in official.analysis.AREAS}
+        selected['additional_capabilities'] = {'ddd': 'Documented intended architecture in an ADR.'}
+        selected['coverage'] = {'ddd': {'resources': ['personal:skill:testing'], 'reason': 'Reviewed fixture skill for intended architecture.'}}
+        result = official.install(self.project, selected, self.registry)
+        self.assertEqual(result['review']['required'], ['ddd'])
+
+    def test_doctor_detects_a_new_uncovered_dependency(self):
+        official.install(self.project, self.selection('testing'), self.registry, True)
+        (self.project / 'package.json').write_text(json.dumps({'devDependencies': {'vitest': '4.1.10'}}))
+        result = r.doctor(self.project)
+        self.assertFalse(result['ok'])
+        self.assertEqual(result['coverage_status'], 'incomplete')
+        self.assertIn('vitest', result['issues'][0])
+
+    def test_doctor_requires_compatibility_review_when_the_same_tool_changes_version(self):
+        (self.project / 'package.json').write_text(json.dumps({'devDependencies': {'vitest': '4.1.10'}}))
+        selected = self.selection('testing')
+        selected['omissions'] = {}
+        selected['coverage'] = {'vitest': {'resources': ['personal:skill:testing'], 'reason': 'Reviewed guidance for the installed runner.'}}
+        official.install(self.project, selected, self.registry, True)
+        self.assertTrue(r.doctor(self.project)['ok'])
+        (self.project / 'package.json').write_text(json.dumps({'devDependencies': {'vitest': '5.0.1'}}))
+        result = r.doctor(self.project)
+        self.assertFalse(result['ok'])
+        self.assertIn('stack/version evidence changed', result['issues'][0])
 
     def test_owner_search_and_missing_catalog_never_use_a_local_working_copy(self):
         self.assertEqual(r.search_command('oop', 'luckys'), ['pnpx', 'skills', 'find', 'oop', '--owner', 'luckys'])

@@ -10,6 +10,7 @@ import subprocess
 import tempfile
 
 import resources as r
+import analysis
 
 SOURCES = [('personal', 'luckys/agent-skills', '.', 0)]
 REPO = re.compile(r'^[A-Za-z0-9_.-]+/[A-Za-z0-9_.-]+$')
@@ -120,12 +121,11 @@ def plan(project, selection, registry):
             raise ValueError(f'Official lock source collision: {item["name"]}')
         selected.append({**item, 'destination': destination, 'target': str(package_path(item)), 'source_root': str(package_path(item).parent),
                          'review_source': item['path'], 'installation': 'skills-cli', 'reason': entry['reason'],
+                         'discovery': entry.get('discovery', {}),
                          'owned': is_owned, 'action': action, 'command': command(repository, item['name'], clients)})
-    if r.inspect_project(project)['frontend']['detected'] and not any(item['name'] == 'frontend-design' and item['repository'] in {'luckys/agent-skills', 'anthropics/skills'} for item in selected):
-        omitted = selection.get('omissions', {}).get('frontend-design', '')
-        if not isinstance(omitted, str) or not omitted.strip():
-            raise ValueError('UI project detected: review and select anthropics/skills frontend-design, or document a concrete omission reason.')
-    return {'project': str(project), 'plan': selected, 'warnings': warnings}, lock_path, previous
+    facts = r.inspect_project(project)
+    review = analysis.validate_coverage(project, facts, selection, selected, previous, r.fingerprint)
+    return {'project': str(project), 'plan': selected, 'review': review, 'warnings': warnings}, lock_path, previous
 
 
 def download(item, stage):
@@ -197,7 +197,7 @@ def install(project, selection, registry, apply=False):
                     r.write_json(official_path, official_lock)
                     r.write_json(lock_path, {'version': 1, 'clients': selection.get('clients', sorted(r.CLIENTS)),
                                             'resources': list(merged.values()), 'notes': selection.get('notes', []),
-                                            'omissions': selection.get('omissions', {})})
+                                            **current['review']})
                 except BaseException:
                     for dest, backup in reversed(journal):
                         if dest.is_symlink(): dest.unlink()

@@ -1,5 +1,5 @@
 ---
-description: Select reviewed skills for the current project and install them through symlinks.
+description: Analyze project stack, architecture and lifecycle; install matching skills through symlinks.
 mode: primary
 ---
 

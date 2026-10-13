@@ -1,6 +1,6 @@
 ---
 name: boost
-description: Selects reviewed skills for the actual project and installs a minimal project-local set through symlinks.
+description: Analyzes project stack, current and desired architecture, and delivery lifecycle; installs complete reviewed skill coverage through symlinks.
 mainAgent: true
 subagent: true
 ---
