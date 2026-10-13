@@ -6,6 +6,8 @@ A curated collection of reusable agent skills for software design, refactoring, 
 
 ## Installation
 
+For a minimal global setup with project-specific symlinks, use the [project bootstrap guide](docs/project-bootstrap.md). Boost analyzes the actual stack and versions, uses the global upstream `find-skills` helper to discover suitable resources, downloads them with `pnpx skills add`, and links the official packages into the project.
+
 Install all skills into your project using the [skills CLI](https://www.skills.sh):
 
 ```bash
@@ -30,6 +32,25 @@ Run the command from your project root. Claude Code and other supported agents p
 > Supported agents: Claude Code, Cursor, Codex, GitHub Copilot, Windsurf, Gemini, Cline, and [more](https://www.skills.sh).
 
 ## Available Skills
+
+### boost
+
+Select and install project resources based on repository evidence and the requested work.
+
+Run `$boost` in Codex, or `/boost` in OpenCode and Antigravity CLI, from a fresh session in the project directory.
+
+- Analyze languages, frameworks, libraries, declared/resolved versions, and toolchains
+- Search skills.sh with find-skills, checking `luckys/agent-skills` first and using other repositories for gaps or incompatibilities
+- Review content and native client compatibility before installation
+- Pin upstream revisions and fingerprint supporting files
+- Download through `pnpx skills add`, then preview, create, verify, and remove owned project symlinks
+- Preserve existing project files, foreign links, and client permissions
+
+### flow
+
+Coordinate software and other deliverables through proportionate discovery, definition, planning, execution, verification, review, delivery, operations, migration, and handoff. Load detailed guidance only for the current kind of work.
+
+Run `$flow` in Codex, or `/flow` in OpenCode and Antigravity CLI. With no additional instructions, resume the current authorized task through its next coherent unit and verification.
 
 ### oop-best-practices
 

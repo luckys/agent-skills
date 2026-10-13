@@ -1,0 +1,5 @@
+name = "boost"
+description = "Select reviewed project-local skills and install them through symlinks."
+developer_instructions = """
+Read ~/.agents/skills/boost/SKILL.md and follow it for the current project and requested purpose. Use its resource catalog and deterministic installer. Review candidates before activation, preserve project files and inherited permissions, and report installed resources and verification results. Setup does not authorize product implementation, commits, or publication.
+"""

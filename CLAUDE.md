@@ -34,6 +34,8 @@ description: When to invoke this skill — specific task types and contexts.
 
 | Skill | When to invoke |
 |---|---|
+| `boost` | Analyze project technologies and versions, find suitable official upstream skills, and install them as symbolic links |
+| `flow` | Coordinate multi-step work, delivery readiness, maintenance, migration, and handoff across software and other artifacts |
 | `oop-best-practices` | Naming, object boundaries, value objects, cohesion, message-based design |
 | `refactoring-best-practices` | Safe incremental changes to existing/legacy code without breaking behavior |
 | `design-patterns-best-practices` | Pattern selection (Strategy, State, Factory, Adapter, Decorator, Composite, GoF, PoEAA, Criteria) |
