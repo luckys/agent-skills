@@ -138,6 +138,7 @@ Use it especially when the task benefits from:
 - Read `references/elm-examples.md` for examples in Elm (frontend FP, The Elm Architecture, decoders).
 - Read `references/clojure-examples.md` for examples in Clojure (threading macros, persistent data structures).
 - Read `references/fsharp-examples.md` for examples in F# (computation expressions, discriminated unions, pipelines).
+- Read `references/kotlin-examples.md` for examples in Kotlin (sealed interfaces, nullable types, Arrow `Either` and `either {}`, coroutines).
 - Read `references/elixir-examples.md` for examples in Elixir (pipe operator, pattern matching, `with`, OTP).
 
 ## Related Skills

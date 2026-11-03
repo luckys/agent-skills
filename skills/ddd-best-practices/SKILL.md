@@ -110,6 +110,7 @@ Return complete Aggregates for invariant-bearing work; use dedicated query model
 - Read `references/read-models.md` for aggregate-derived DTOs vs dedicated read models, CQRS query shapes, projection handlers, atomic idempotency, missing event data, incremental updates, and shadow rebuilds.
 - Read `references/typescript-ddd-examples.md` for the TypeScript DDD skeleton: folder structure by Bounded Context, explicit Value Objects, AggregateRoot/DomainEvent examples, creation vs reconstitution strategies, use case structure, CommandBus/QueryBus, Object Mother, and Criteria pattern.
 - Read `references/go-ddd-examples.md` for DDD in Go: folder structure by Bounded Context, Value Objects, Aggregate Root with unexported fields, Domain Events, Repository interface (port) vs implementation (adapter), Use Case, ACL, CQRS query side, Domain Service.
+- Read `references/kotlin-ddd-examples.md` for the Kotlin port of the TypeScript DDD skeleton: value classes, AggregateRoot/DomainEvent, suspend repository ports, CommandBus/QueryBus with `KClass` registries, Criteria, Object Mother, and JUnit 5 + MockK tests.
 
 ## Related Skills
 
