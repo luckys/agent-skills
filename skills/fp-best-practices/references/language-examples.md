@@ -13,6 +13,7 @@ Use this file as an index to the language-specific functional programming refere
 - `references/elm-examples.md` — frontend FP, The Elm Architecture, decoders
 - `references/clojure-examples.md` — LISP FP, threading macros, persistent data structures
 - `references/fsharp-examples.md` — .NET functional-first, computation expressions
+- `references/kotlin-examples.md` — JVM, sealed interfaces, nullable types, Arrow `Either`, coroutines
 - `references/elixir-examples.md` — BEAM concurrency, OTP, pipe operator, `with`
 
 ## Shared Concept Set
@@ -56,6 +57,7 @@ Each language file covers the same concepts:
 | Elm | `\|>` | `>>` / `<<` | `Maybe` (built-in) | `Result` (built-in) | elm/core |
 | Clojure | `->` / `->>` | `comp` | `nil` + `some->` | maps + cond | clojure.core, spec |
 | F# | `\|>` | `>>` | `Option` (built-in) | `Result` (built-in) | FSharpPlus, Giraffe |
+| Kotlin | method chaining / `let` | `andThen` (Arrow) | `T?` (built-in) | `Either` (Arrow) | stdlib, Arrow, kotlinx.coroutines |
 | Python | `pipe` (toolz) | `compose` (toolz) | `Optional[T]` / `Maybe` (returns) | `Result` (returns) | functools, itertools, returns |
 | Go | closures / `Pipeline` fn | closures | `(value, bool)` / `sql.NullX` | `(value, error)` | stdlib, slices (1.21+) |
 | Rust | `.` method chaining | closures | `Option<T>` (built-in) | `Result<T,E>` (built-in) | std::iter, itertools |

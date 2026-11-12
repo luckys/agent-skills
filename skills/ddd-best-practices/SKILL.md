@@ -77,7 +77,7 @@ Return complete Aggregates for invariant-bearing work; use dedicated query model
 
 ## Warning Signs
 
-- Anemic Domain Model: Entities have only getters/setters; all logic is in services.
+- Anemic Domain Model: state transitions live outside the domain model, so any caller can set any state. Immutable data with domain functions owning every transition is not anemic.
 - God Aggregate: one Aggregate contains everything related to a concept.
 - Shared database between Bounded Contexts — contexts are coupled through the schema.
 - Ubiquitous Language drift: code uses different terms from the domain experts.
@@ -110,6 +110,7 @@ Return complete Aggregates for invariant-bearing work; use dedicated query model
 - Read `references/read-models.md` for aggregate-derived DTOs vs dedicated read models, CQRS query shapes, projection handlers, atomic idempotency, missing event data, incremental updates, and shadow rebuilds.
 - Read `references/typescript-ddd-examples.md` for the TypeScript DDD skeleton: folder structure by Bounded Context, explicit Value Objects, AggregateRoot/DomainEvent examples, creation vs reconstitution strategies, use case structure, CommandBus/QueryBus, Object Mother, and Criteria pattern.
 - Read `references/go-ddd-examples.md` for DDD in Go: folder structure by Bounded Context, Value Objects, Aggregate Root with unexported fields, Domain Events, Repository interface (port) vs implementation (adapter), Use Case, ACL, CQRS query side, Domain Service.
+- Read `references/kotlin-ddd-fp-examples.md` for the Kotlin DDD skeleton in FP style: `Either` factories, immutable aggregate results, sealed Domain Events, repository and EventBus ports, Mongo adapter, CommandBus/QueryBus, Criteria, Object Mother, and MockK tests.
 
 ## Related Skills
 
