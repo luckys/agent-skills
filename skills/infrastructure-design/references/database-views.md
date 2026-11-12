@@ -244,6 +244,43 @@ export class MariaDBPostProjectionRepository implements PostProjectionRepository
 }
 ```
 
+**Example — Kotlin event handler updating a projection:**
+
+```kotlin
+// OnPostLikeAddedUpdatePostProjection.kt
+class OnPostLikeAddedUpdatePostProjection(
+    private val projectionRepository: PostProjectionRepository,
+) : DomainEventSubscriber<PostLikeAdded> {
+    override fun subscribedTo() = listOf(PostLikeAdded)
+
+    override suspend fun on(event: PostLikeAdded): Either<InfrastructureError, Unit> = either {
+        val projection = projectionRepository.search(PostId(event.postId)).bind() ?: return@either
+        val updated = projection.incrementLikes()
+        projectionRepository.save(updated).bind()
+    }
+}
+
+// PostProjectionRepository — writes to the denormalized projection table
+class MariaDBPostProjectionRepository(
+    private val connection: Connection,
+) : PostProjectionRepository {
+    override suspend fun save(projection: PostProjection): Either<InfrastructureError, Unit> =
+        connection.execute(
+            """
+            INSERT INTO posts_projection (id, user_id, content, total_likes, created_at)
+            VALUES (?, ?, ?, ?, ?)
+            ON DUPLICATE KEY UPDATE total_likes = ?
+            """.trimIndent(),
+            projection.id,
+            projection.userId,
+            projection.content,
+            projection.totalLikes,
+            projection.createdAt,
+            projection.totalLikes,
+        )
+}
+```
+
 ---
 
 ## Views vs Projections vs Cache: Decision Table

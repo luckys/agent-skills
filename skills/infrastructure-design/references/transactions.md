@@ -67,6 +67,32 @@ export class InlineTransactionalPostPublisher {
 }
 ```
 
+**Kotlin:**
+
+```kotlin
+// InlineTransactionalPostPublisher.kt — explicit inline strategy
+class InlineTransactionalPostPublisher(
+    private val clock: Clock,
+    private val repository: PostRepository,
+    private val outbox: IntegrationMessageOutbox,
+    private val transactionManager: TransactionManager,
+) {
+    suspend fun publish(id: String, userId: String, content: String): Either<InfrastructureError, Unit> {
+        val post = Post.publish(id, userId, content, clock)
+        // Left or an uncaught exception rolls back; clear runs only on Right (committed).
+        return transactionManager.run { tx ->
+            either {
+                val handedOff = post.pendingDomainEvents() // non-destructive, stable event IDs
+                val messages = toIntegrationMessages(handedOff)
+                repository.with(tx).save(post).bind()
+                outbox.with(tx).append(messages).bind()
+                handedOff
+            }
+        }.map { handedOff -> post.clearDomainEvents(handedOff) } // clear only after commit
+    }
+}
+```
+
 The Unit of Work must not permanently discard pulled events when the transaction rolls back. Append them durably before commit and retain/recover pending events on failure, or inspect pending events without draining until the handoff succeeds. See `event-bus.md` for the full Outbox contract.
 
 ---
@@ -102,6 +128,19 @@ export class TransactionalPostPublisher implements PostPublisherInterface {
       await this.wrapped.publish(id, userId, content);
     });
   }
+}
+```
+
+**Kotlin:**
+
+```kotlin
+// TransactionalPostPublisher.kt — decorator approach
+class TransactionalPostPublisher(
+    private val wrapped: PostPublisher,
+    private val transactionManager: TransactionManager,
+) : PostPublisherInterface {
+    override suspend fun publish(id: String, userId: String, content: String): Either<InfrastructureError, Unit> =
+        transactionManager.run { wrapped.publish(id, userId, content) }
 }
 ```
 

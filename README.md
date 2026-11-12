@@ -110,6 +110,7 @@ Domain-Driven Design guidance for modeling complex domains.
 
 Infrastructure pattern guidance for DDD and hexagonal architecture applications.
 
+- Examples in TypeScript and Kotlin
 - Event bus: in-memory, DB-backed, RabbitMQ with dead-letter exchanges
 - Outbox and Inbox patterns for reliable event delivery
 - Ordering/versioning, retries, dead-letter replay, idempotency, and Change Data Capture

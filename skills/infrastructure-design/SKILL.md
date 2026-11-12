@@ -4,7 +4,7 @@ description: Use when designing event buses or broker relays, Outbox/Inbox and C
 license: MIT
 metadata:
   author: luckys
-  version: "1.1.0"
+  version: "1.2.0"
 ---
 
 # Infrastructure Design
@@ -50,6 +50,8 @@ Practical infrastructure patterns for layered (hexagonal/DDD) applications. The 
 - `data-migration-best-practices` — snapshot/backfill, live-delta handoff, reconciliation, cutover, and repair workflow
 
 ## References
+
+Code examples are in TypeScript, each followed by a Kotlin twin (FP style: Arrow `Either`, coroutines).
 
 - Read `references/retry-and-concurrency.md` when an operation can be retried, resumed, or executed by concurrent workers.
 

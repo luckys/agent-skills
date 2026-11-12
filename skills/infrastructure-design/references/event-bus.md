@@ -41,6 +41,41 @@ export class InMemoryEventBus implements EventBus {
 }
 ```
 
+**Kotlin:**
+
+```kotlin
+interface DomainEventType {
+    val eventName: String
+}
+
+interface DomainEventSubscriber<E : DomainEvent> {
+    fun subscribedTo(): List<DomainEventType>
+    suspend fun on(event: E): Either<InfrastructureError, Unit>
+}
+
+typealias EventHandler = suspend (DomainEvent) -> Either<InfrastructureError, Unit>
+
+class InMemoryEventBus(subscribers: List<DomainEventSubscriber<DomainEvent>>) : EventBus {
+    private val subscriptions: Map<String, List<EventHandler>> = buildMap {
+        for (subscriber in subscribers) {
+            for (eventType in subscriber.subscribedTo()) {
+                val handlers = getOrDefault(eventType.eventName, emptyList())
+                put(eventType.eventName, handlers + { event: DomainEvent -> subscriber.on(event) })
+            }
+        }
+    }
+
+    override suspend fun publish(events: List<DomainEvent>): Either<InfrastructureError, Unit> = either {
+        for (event in events) {
+            // Sequential dispatch avoids sibling work outliving a failed publication.
+            for (handler in subscriptions[event.eventName].orEmpty()) {
+                handler(event).bind()
+            }
+        }
+    }
+}
+```
+
 Choose and document one failure policy:
 
 - **Fail-fast/propagate:** publication rejects if a synchronous handler fails.
@@ -60,6 +95,19 @@ await transactionManager.run(async (tx) => {
   await outbox.with(tx).append(toIntegrationMessages(pending));
 });
 user.clearDomainEvents(pending); // only after commit succeeds
+```
+
+**Kotlin:**
+
+```kotlin
+val pending = user.pendingDomainEvents() // non-destructive snapshot with stable IDs
+// Left or an uncaught exception rolls back; clear runs only on Right (committed).
+transactionManager.run { tx ->
+    either {
+        userRepository.with(tx).save(user).bind()
+        outbox.with(tx).append(toIntegrationMessages(pending)).bind()
+    }
+}.map { user.clearDomainEvents(pending) } // only after commit succeeds
 ```
 
 An Event Bus that opens a separate transaction around only its inserts does not solve the dual-write problem. An external broker cannot participate atomically in a normal database transaction; retain the Outbox even when the relay publishes to RabbitMQ or Kafka.

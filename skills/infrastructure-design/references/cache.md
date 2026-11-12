@@ -50,6 +50,35 @@ async search(id: PostId): Promise<Post | null> {
 }
 ```
 
+**Kotlin:**
+
+```kotlin
+suspend fun search(id: PostId): Either<InfrastructureError, Post?> {
+    val key = postKey(id)
+    cache.get(key)
+        .onLeft { metrics.cacheReadFailed(it) }
+        .getOrNull()
+        ?.let { cached ->
+            decodePost(cached)
+                .onLeft { error ->
+                    metrics.cachePayloadInvalid(error)
+                    cache.delete(key).onLeft { /* ignore delete failure */ }
+                }
+                .getOrNull()
+                ?.let { return it.right() }
+        }
+
+    return source.search(id).onRight { post ->
+        post?.let {
+            cache.set(key, encodePost(it), ttlWithJitter(60))
+                .onLeft { metrics.cacheWriteFailed(it) }
+        }
+    }
+}
+```
+
+Adapters should build these `Either` values with `Either.catch`, which rethrows `CancellationException`; a plain `catch (e: Exception)` in a `suspend` function would swallow it.
+
 For ordinary performance caches, reads should usually fail open to the authoritative source with short timeouts and a circuit breaker. Security decisions, authorization, idempotency, locks, and correctness-critical state are not ordinary caches; do not silently fail open there.
 
 Negative caching can protect the source from repeated misses, but use a distinguishable sentinel, short TTL, and invalidation on create. Never confuse cached absence, corrupted data, and Redis failure.
