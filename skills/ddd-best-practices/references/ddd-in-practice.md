@@ -760,7 +760,7 @@ class Order
 $order->setStatus('shipped'); // any value, any time — invariant impossible
 ```
 
-**Fix:** Put business behaviour on the Entity itself. Methods like `ship()`, `cancel()`, `approve()` encode the state transition and protect invariants:
+**Fix:** Put business behaviour on the Entity itself. Methods or functions like `ship()`, `cancel()`, `approve()` encode the state transition and protect invariants:
 
 ```php
 class Order
@@ -776,6 +776,13 @@ class Order
         $this->events[] = new OrderShipped($this->id);
     }
 }
+```
+
+```kotlin
+data class PaidOrder(val id: OrderId)
+data class ShippedOrder(val id: OrderId, val shippedAt: Instant)
+
+fun ship(order: PaidOrder, now: Instant): ShippedOrder = ShippedOrder(order.id, now)
 ```
 
 ### Using PHP `serialize/unserialize` for Domain Objects
